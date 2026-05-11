@@ -146,7 +146,7 @@ REFERENCE_SOURCES = [
     {'name': 'nl_gemeenten',          'qid': 'wd:Q2039348',  'description': 'NL gemeenten'},
     {'name': 'nl_provincies',         'qid': 'wd:Q134390',   'description': 'NL provincies'},
     {'name': 'be_gemeenten',          'qid': 'wd:Q493522',   'description': 'BE gemeenten'},
-    {'name': 'be_provincies',         'qid': 'wd:Q364356',   'description': 'BE provincies'},
+    {'name': 'be_provincies',         'qid': 'wd:Q83116',    'description': 'BE provincies'},
     {'name': 'be_politiezones',       'qid': 'wd:Q15074734', 'description': 'BE politiezones'},
     {'name': 'de_gemeinden',          'qid': 'wd:Q262166',   'description': 'DE gemeinden'},
     {'name': 'de_landkreise',         'qid': 'wd:Q106658',   'description': 'DE landkreise'},

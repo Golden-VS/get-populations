@@ -113,9 +113,16 @@ def _sparql_population_template(qid_filter):
     NL gemeenten of DE Gemeinden). We doen de 'pak de meest recente per item'
     deduplicatie nu in Python via deduplicate_keep_latest().
     """
+    # FILTER NOT EXISTS { ?item wdt:P576 ?dissolved } sluit entiteiten met een
+    # ontbindingsdatum uit. Effect gemeten 2026-05-11:
+    #   be_gemeenten:  581 -> 565  (matcht realiteit: BE heeft ~565 gemeenten)
+    #   nl_gemeenten: 1575 -> 1316 (verbetering, maar nog te veel; veel
+    #                                historische NL gemeenten missen P576)
+    # Goedkope existence check, geen merkbaar timeout-effect.
     return f"""
     SELECT ?item ?itemLabel ?population ?date WHERE {{
       ?item wdt:P31 {qid_filter} .
+      FILTER NOT EXISTS {{ ?item wdt:P576 ?dissolved }}
       ?item p:P1082 ?stmt .
       ?stmt ps:P1082 ?population .
       OPTIONAL {{ ?stmt pq:P585 ?date . }}

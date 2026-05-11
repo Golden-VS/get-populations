@@ -133,10 +133,13 @@ def _sparql_population_template(qid_filter):
 
 # Lijst van alle referentielijsten die we ophalen.
 # 'qid' = Wikidata-klasse-Q-ID, 'description' = mens-leesbaar.
+#
+# NB: nl_waterschappen niet in deze lijst. Wikidata heeft P1082 voor 0 van de
+# 23 actieve waterschappen (gemeten 2026-05-11, qid Q702081). Aanpak: behandel
+# 'waterschap' als aggregatie-type via NL_WATERSCHAP_GEMEENTEN (zie hieronder).
 REFERENCE_SOURCES = [
     {'name': 'nl_gemeenten',          'qid': 'wd:Q2039348',  'description': 'NL gemeenten'},
     {'name': 'nl_provincies',         'qid': 'wd:Q134390',   'description': 'NL provincies'},
-    {'name': 'nl_waterschappen',      'qid': 'wd:Q1232456',  'description': 'NL waterschappen'},
     {'name': 'nl_stadsdelen',         'qid': 'wd:Q1908768',  'description': 'NL stadsdelen'},
     {'name': 'be_gemeenten',          'qid': 'wd:Q493522',   'description': 'BE gemeenten'},
     {'name': 'be_provincies',         'qid': 'wd:Q364356',   'description': 'BE provincies'},
@@ -198,6 +201,46 @@ NL_VEILIGHEIDSREGIO_GEMEENTEN = {
     ],
     # Aanvullen indien jouw CRM andere veiligheidsregio's bevat.
 }
+
+# NL waterschappen: 21 actieve water boards (per 2026). Wikidata heeft GEEN
+# inwonertal-data (P1082) voor waterschappen, dus we sommen NL gemeenten in
+# het beheergebied. Let op: waterschap-grenzen volgen NIET netjes gemeente-
+# grenzen (een gemeente kan in meerdere waterschappen vallen). De som is
+# daarom een benadering. Onderzoek-bron per ingang invullen (waterschap-
+# website / Wikipedia / Unie van Waterschappen).
+#
+# Sleutels MOETEN matchen met canonical_name uit step1 (na het strippen van
+# het "Waterschap "/"Hoogheemraadschap "-prefix). Waarden zijn NL gemeente-
+# namen zoals ze in nl_gemeenten staan (na normalisatie matched fuzzy).
+#
+# Status: STUB. Lijsten leeg tot we ze met betrouwbare bron invullen.
+NL_WATERSCHAP_GEMEENTEN = {
+    # Hoogheemraadschappen (4 stuks)
+    'Hollands Noorderkwartier': [],         # Q4469762
+    'Rijnland':                  [],         # Q2619632
+    'Delfland':                  [],         # Q3046110
+    'Schieland en de Krimpenerwaard': [],   # Q2304570
+    'De Stichtse Rijnlanden':    [],         # Q2046915
+    'Amstel, Gooi en Vecht':     [],         # Q2192659
+
+    # Waterschappen (15 stuks)
+    'Aa en Maas':                [],         # Q2553577
+    'Brabantse Delta':           [],         # Q3211339
+    'De Dommel':                 [],         # Q2904296
+    'Drents Overijsselse Delta': [],         # Q21921798
+    'Hollandse Delta':           [],         # Q3079910
+    'Hunze en Aa\'s':            [],         # Q14941974
+    'Limburg':                   [],         # Q27895262
+    'Noorderzijlvest':           [],         # Q2096098
+    'Rijn en IJssel':            [],         # Q2228586
+    'Rivierenland':              [],         # Q2273075
+    'Scheldestromen':            [],         # Q2422832
+    'Vallei en Veluwe':          [],         # Q2474783
+    'Vechtstromen':              [],         # Q15883321
+    'Wetterskip Fryslan':        [],         # Q1970347   (Fries: "Fryslan")
+    'Zuiderzeeland':             [],         # Q3086208
+}
+
 
 NL_OMGEVINGSDIENST_GEMEENTEN = {
     'DCMR Rijnmond': [
@@ -499,7 +542,9 @@ UNSUPPORTED_AGGREGATION = {
     'ggd', 'stadsregio', 'amt', 'verwaltungsgemeinschaft',
 }
 
-# Mapping detected_type -> naam van de referentielijst voor 1-op-1 match
+# Mapping detected_type -> naam van de referentielijst voor 1-op-1 match.
+# 'waterschap' staat NIET in deze tabel: dat type heeft een aparte branch
+# in enrich_record die NL_WATERSCHAP_GEMEENTEN gebruikt.
 TYPE_TO_REFERENCE = {
     'gemeente_nl':       'nl_gemeenten',
     'gemeente_be':       'be_gemeenten',
@@ -508,7 +553,6 @@ TYPE_TO_REFERENCE = {
     'gemeinde_de':       'de_gemeinden',
     'provincie_nl':      'nl_provincies',
     'provincie_be':      'be_provincies',
-    'waterschap':        'nl_waterschappen',
     'stadsdeel':         'nl_stadsdelen',
     'deelgemeente':      'nl_stadsdelen',
     'landkreis':         'de_landkreise',
@@ -615,6 +659,27 @@ def enrich_record(row, ref_data, gemeenten_nl):
                 'cx_population_new':  total,
                 'peildatum_inwoners': peildatum,
                 'bron':               f'aggregatie NL gemeenten (Wikidata) voor omgevingsdienst {used_key}',
+                'proces':             note,
+            })
+        else:
+            result['proces'] = note
+        return result
+
+    # Aggregatie: waterschap (Wikidata heeft geen P1082 voor waterschappen)
+    if etype == 'waterschap':
+        members, used_key = _resolve_mapping(canon, NL_WATERSCHAP_GEMEENTEN)
+        if used_key is None:
+            result['proces'] = f'waterschap "{canon}" niet in NL_WATERSCHAP_GEMEENTEN-tabel'
+            return result
+        if not members:
+            result['proces'] = f'waterschap "{used_key}": ledenlijst nog niet ingevuld in NL_WATERSCHAP_GEMEENTEN'
+            return result
+        total, peildatum, n, _missing, note = aggregate_sum(members, gemeenten_nl)
+        if total:
+            result.update({
+                'cx_population_new':  total,
+                'peildatum_inwoners': peildatum,
+                'bron':               f'aggregatie NL gemeenten (Wikidata) voor waterschap {used_key}',
                 'proces':             note,
             })
         else:

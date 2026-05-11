@@ -137,10 +137,14 @@ def _sparql_population_template(qid_filter):
 # NB: nl_waterschappen niet in deze lijst. Wikidata heeft P1082 voor 0 van de
 # 23 actieve waterschappen (gemeten 2026-05-11, qid Q702081). Aanpak: behandel
 # 'waterschap' als aggregatie-type via NL_WATERSCHAP_GEMEENTEN (zie hieronder).
+#
+# NB: nl_stadsdelen ook niet in deze lijst. De juiste Wikidata-klasse is
+# Q15079751 ("borough of Amsterdam"), maar 0 van de 8 huidige stadsdelen heeft
+# P1082 (gemeten 2026-05-11). Aanpak: directe-waarde-lookup via
+# NL_STADSDEEL_INWONERS, gevoed met cijfers uit NL Wikipedia-infoboxen.
 REFERENCE_SOURCES = [
     {'name': 'nl_gemeenten',          'qid': 'wd:Q2039348',  'description': 'NL gemeenten'},
     {'name': 'nl_provincies',         'qid': 'wd:Q134390',   'description': 'NL provincies'},
-    {'name': 'nl_stadsdelen',         'qid': 'wd:Q1908768',  'description': 'NL stadsdelen'},
     {'name': 'be_gemeenten',          'qid': 'wd:Q493522',   'description': 'BE gemeenten'},
     {'name': 'be_provincies',         'qid': 'wd:Q364356',   'description': 'BE provincies'},
     {'name': 'be_politiezones',       'qid': 'wd:Q15074734', 'description': 'BE politiezones'},
@@ -239,6 +243,51 @@ NL_WATERSCHAP_GEMEENTEN = {
     'Vechtstromen':              [],         # Q15883321
     'Wetterskip Fryslan':        [],         # Q1970347   (Fries: "Fryslan")
     'Zuiderzeeland':             [],         # Q3086208
+}
+
+
+# Amsterdam stadsdelen (per 2026): 7 stadsdelen + 1 stadsgebied Weesp.
+# Wikidata heeft GEEN P1082 voor deze entiteiten (Q15079751 - borough of
+# Amsterdam). Cijfers daarom uit NL Wikipedia-infoboxen.
+#
+# Peildatums verschillen per artikel (2020 t/m 2022) - we slaan het jaar op
+# in peildatum_inwoners. Periodiek bijwerken via officiele bron
+# onderzoek.amsterdam.nl voor verse data.
+#
+# Beide naamsvarianten als sleutel: 'Centrum' (na strippen van "Stadsdeel "-
+# prefix in step1) en 'Amsterdam-Centrum' (volledige naam zoals in sommige
+# CRM-records).
+NL_STADSDEEL_INWONERS = {
+    'Centrum':                {'population':  87310, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Centrum'},
+    'Amsterdam-Centrum':      {'population':  87310, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Centrum'},
+    'Noord':                  {'population':  99238, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Noord'},
+    'Amsterdam-Noord':        {'population':  99238, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Noord'},
+    'Oost':                   {'population': 142049, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Oost'},
+    'Amsterdam-Oost':         {'population': 142049, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Oost'},
+    'Zuid':                   {'population': 146291, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Zuid'},
+    'Amsterdam-Zuid':         {'population': 146291, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Zuid'},
+    'Zuidoost':               {'population':  89841, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Zuidoost'},
+    'Amsterdam-Zuidoost':     {'population':  89841, 'peildatum': '2020',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Zuidoost'},
+    'West':                   {'population': 148908, 'peildatum': '2022',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-West'},
+    'Amsterdam-West':         {'population': 148908, 'peildatum': '2022',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-West'},
+    'Nieuw-West':             {'population': 159522, 'peildatum': '2021',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Nieuw-West'},
+    'Amsterdam-Nieuw-West':   {'population': 159522, 'peildatum': '2021',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Nieuw-West'},
+    'Weesp':                  {'population':  20766, 'peildatum': '2022',
+                               'bron_url':   'https://nl.wikipedia.org/wiki/Weesp'},
 }
 
 
@@ -543,8 +592,12 @@ UNSUPPORTED_AGGREGATION = {
 }
 
 # Mapping detected_type -> naam van de referentielijst voor 1-op-1 match.
-# 'waterschap' staat NIET in deze tabel: dat type heeft een aparte branch
-# in enrich_record die NL_WATERSCHAP_GEMEENTEN gebruikt.
+# Niet in deze tabel:
+#   'waterschap'   -> aparte aggregatie via NL_WATERSCHAP_GEMEENTEN
+#   'stadsdeel'    -> directe lookup in NL_STADSDEEL_INWONERS
+#   'deelgemeente' -> directe lookup in NL_STADSDEEL_INWONERS (Amsterdam
+#                     stadsdelen heetten formeel "deelgemeente" tot 2010;
+#                     Rotterdamse deelgemeenten zijn in 2014 afgeschaft)
 TYPE_TO_REFERENCE = {
     'gemeente_nl':       'nl_gemeenten',
     'gemeente_be':       'be_gemeenten',
@@ -553,8 +606,6 @@ TYPE_TO_REFERENCE = {
     'gemeinde_de':       'de_gemeinden',
     'provincie_nl':      'nl_provincies',
     'provincie_be':      'be_provincies',
-    'stadsdeel':         'nl_stadsdelen',
-    'deelgemeente':      'nl_stadsdelen',
     'landkreis':         'de_landkreise',
     'landratsamt':       'de_landkreise',   # Landratsamt X -> match op Landkreis X
     'verbandsgemeinde':  'de_verbandsgemeinden',
@@ -663,6 +714,24 @@ def enrich_record(row, ref_data, gemeenten_nl):
             })
         else:
             result['proces'] = note
+        return result
+
+    # Directe waarde-lookup: Amsterdam stadsdelen + deelgemeenten
+    # (Wikidata heeft geen P1082 voor deze entiteiten)
+    if etype in ('stadsdeel', 'deelgemeente'):
+        matched, used_key = _resolve_mapping(canon, NL_STADSDEEL_INWONERS)
+        if matched is None:
+            result['proces'] = (
+                f'{etype} "{canon}" niet in NL_STADSDEEL_INWONERS-tabel '
+                f'(alleen Amsterdam stadsdelen worden ondersteund)'
+            )
+            return result
+        result.update({
+            'cx_population_new':  matched['population'],
+            'peildatum_inwoners': matched['peildatum'],
+            'bron':               f"NL_STADSDEEL_INWONERS ({matched['bron_url']})",
+            'proces':             f'directe waarde uit stadsdeel-tabel voor "{used_key}"',
+        })
         return result
 
     # Aggregatie: waterschap (Wikidata heeft geen P1082 voor waterschappen)

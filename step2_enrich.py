@@ -142,12 +142,15 @@ def _sparql_population_template(qid_filter):
 # Q15079751 ("borough of Amsterdam"), maar 0 van de 8 huidige stadsdelen heeft
 # P1082 (gemeten 2026-05-11). Aanpak: directe-waarde-lookup via
 # NL_STADSDEEL_INWONERS, gevoed met cijfers uit NL Wikipedia-infoboxen.
+#
+# NB: be_politiezones ook niet in deze lijst. De juiste klasse is Q2621126
+# ("police zone"), maar 0 van de 176 politiezones heeft P1082 (gemeten
+# 2026-05-11). Aanpak: aggregatie van BE gemeenten via BE_POLITIEZONE_GEMEENTEN.
 REFERENCE_SOURCES = [
     {'name': 'nl_gemeenten',          'qid': 'wd:Q2039348',  'description': 'NL gemeenten'},
     {'name': 'nl_provincies',         'qid': 'wd:Q134390',   'description': 'NL provincies'},
     {'name': 'be_gemeenten',          'qid': 'wd:Q493522',   'description': 'BE gemeenten'},
     {'name': 'be_provincies',         'qid': 'wd:Q83116',    'description': 'BE provincies'},
-    {'name': 'be_politiezones',       'qid': 'wd:Q15074734', 'description': 'BE politiezones'},
     {'name': 'de_gemeinden',          'qid': 'wd:Q262166',   'description': 'DE gemeinden'},
     {'name': 'de_landkreise',         'qid': 'wd:Q106658',   'description': 'DE landkreise'},
     {'name': 'de_verbandsgemeinden',  'qid': 'wd:Q253019',   'description': 'DE verbandsgemeinden'},
@@ -317,6 +320,196 @@ NL_OMGEVINGSDIENST_GEMEENTEN = {
         "Veenendaal", "Vijfheerenlanden", "Wijk bij Duurstede", "Woerden", "Woudenberg", "Zeist"
     ],
     # Aanvullen indien nodig.
+}
+
+
+# BE politiezones: 176 zones (per 2026). Wikidata heeft GEEN P1082 voor deze
+# entiteiten (Q2621126 - police zone, gemeten 2026-05-11). Cijfers worden
+# berekend als som van be_gemeenten in elk politiezonebeheergebied.
+#
+# Sleutels = naam van de politiezone na strippen van "PZ "/"ZP "-prefix.
+# Waarden = lijst NL-gemeentenamen zoals ze in be_gemeenten staan (Wikidata
+# itemLabel met taal-prioriteit nl,en,de,fr, dus Frans-talige gemeenten als
+# 'Luik', 'Bergen', 'Aarlen', 'Komen-Waasten' etc.).
+#
+# Geextraheerd op 2026-05-11 uit NL Wikipedia:
+# https://nl.wikipedia.org/wiki/Lijst_van_politiezones_in_Belgi%C3%AB
+# 173 zones geparseerd; 3 minder dan 176 wegens (zeldzame) edge cases in
+# de wikitext-opmaak. Periodiek vernieuwen.
+BE_POLITIEZONE_GEMEENTEN = {
+    'Antwerpen': ['Antwerpen'],
+    'Rupel': ['Boom', 'Hemiksem', 'Niel', 'Rumst', 'Schelle'],
+    'Noord': ['Kapellen', 'Stabroek'],
+    'HEKLA': ['Hove', 'Edegem', 'Kontich', 'Lint', 'Aartselaar'],
+    'Grens': ['Essen', 'Kalmthout', 'Wuustwezel'],
+    'MINOS': ['Boechout', 'Mortsel', 'Wijnegem', 'Wommelgem'],
+    'Brasschaat': ['Brasschaat'],
+    'Schoten': ['Schoten'],
+    'ZARA': ['Zandhoven', 'Ranst'],
+    'Voorkempen': ['Brecht', 'Malle', 'Schilde', 'Zoersel'],
+    'BODUKAP': ['Bonheiden', 'Duffel', 'Sint-Katelijne-Waver', 'Putte'],
+    'Lier': ['Lier'],
+    'Berlaar/Nijlen': ['Berlaar', 'Nijlen'],
+    'Heist': ['Heist-op-den-Berg'],
+    'Noorderkempen': ['Hoogstraten', 'Merksplas', 'Rijkevorsel'],
+    'Regio Turnhout': ['Baarle-Hertog', 'Beerse', 'Kasterlee', 'Lille', 'Oud-Turnhout', 'Turnhout', 'Vosselaar'],
+    'Zuiderkempen': ['Herselt', 'Hulshout', 'Westerlo'],
+    'Geel-Laakdal-Meerhout': ['Geel', 'Laakdal', 'Meerhout'],
+    'Kempen Noord-Oost': ['Arendonk', 'Ravels', 'Retie'],
+    'Balen-Dessel-Mol': ['Balen', 'Dessel', 'Mol'],
+    'Neteland': ['Grobbendonk', 'Herentals', 'Herenthout', 'Olen', 'Vorselaar'],
+    'Rivierenland': ['Bornem', 'Puurs-Sint-Amands', 'Mechelen', 'Willebroek'],
+    'Beringen/Ham/Tessenderlo': ['Beringen', 'Tessenderlo-Ham'],
+    'Heusden-Zolder': ['Heusden-Zolder'],
+    'Sint-Truiden/Gingelom/Nieuwerkerken': ['Sint-Truiden', 'Gingelom', 'Nieuwerkerken'],
+    'Bilzen/Hoeselt/Riemst': ['Bilzen-Hoeselt', 'Riemst'],
+    'Voeren': ['Voeren'],
+    'Maasland': ['Dilsen-Stokkem', 'Maaseik'],
+    'Lanaken/Maasmechelen': ['Lanaken', 'Maasmechelen'],
+    'Limburg Regio Hoofdstad': ['Alken', 'Hasselt', 'Zonhoven', 'Diepenbeek', 'Halen', 'Herk-de-Stad', 'Lummen'],
+    'CARMA': ['Genk', 'As', 'Oudsbergen', 'Zutendaal', 'Houthalen-Helchteren', 'Bocholt', 'Bree', 'Kinrooi'],
+    'Noord-Limburg': ['Hamont-Achel', 'Hechtel-Eksel', 'Leopoldsburg', 'Lommel', 'Peer', 'Pelt'],
+    'Leuven': ['Leuven'],
+    'Hageland': ['Bekkevoort', 'Geetbets', 'Glabbeek', 'Kortenaken', 'Tielt-Winge'],
+    'Bierbeek/Boutersem/Holsbeek/Lubbeek': ['Bierbeek', 'Boutersem', 'Holsbeek', 'Lubbeek'],
+    'HerKo': ['Herent', 'Kortenberg'],
+    'Aarschot': ['Aarschot'],
+    'Boortmeerbeek/Haacht/Keerbergen': ['Boortmeerbeek', 'Haacht', 'Keerbergen'],
+    'Demerdal DSZ': ['Diest', 'Scherpenheuvel-Zichem'],
+    'BRT': ['Begijnendijk', 'Rotselaar', 'Tremelo'],
+    'Zaventem': ['Zaventem'],
+    'WOKRA': ['Wezembeek-Oppem', 'Kraainem'],
+    'Druivenstreek': ['Overijse', 'Hoeilaart'],
+    'Rode': ['Drogenbos', 'Linkebeek', 'Sint-Genesius-Rode'],
+    'Pajottenland': ['Bever', 'Lennik', 'Pajottegem', 'Pepingen'],
+    'Dilbeek': ['Dilbeek'],
+    'TARL': ['Ternat', 'Affligem', 'Roosdaal', 'Liedekerke'],
+    'AMOW': ['Asse', 'Merchtem', 'Opwijk', 'Wemmel'],
+    'K-L-M': ['Kapelle-op-den-Bos', 'Londerzeel', 'Meise'],
+    'Grimbergen': ['Grimbergen'],
+    'Vilvoorde/Machelen': ['Vilvoorde', 'Machelen'],
+    'KASTZE': ['Kampenhout', 'Steenokkerzeel', 'Zemst'],
+    'Zennevallei': ['Beersel', 'Halle', 'Sint-Pieters-Leeuw'],
+    'Voer & Dijle': ['Bertem', 'Huldenberg', 'Oud-Heverlee', 'Tervuren'],
+    'Getevallei': ['Tienen', 'Hoegaarden', 'Landen', 'Linter', 'Zoutleeuw'],
+    'Gent': ['Gent'],
+    'Regio Puyenbroeck': ['Lochristi', 'Zelzate'],
+    'Meetjesland-Centrum': ['Eeklo', 'Kaprijke', 'Sint-Laureins'],
+    'Regio Rhode & Schelde': ['Destelbergen', 'Merelbeke-Melle', 'Oosterzele'],
+    'Schelde-Leie': ['Gavere', 'Nazareth-De Pinte', 'Sint-Martens-Latem'],
+    'Assenede/Evergem': ['Assenede', 'Evergem'],
+    'Ronse': ['Ronse'],
+    'Geraardsbergen/Lierde': ['Geraardsbergen', 'Lierde'],
+    'Zottegem/Herzele/Sint-Lievens-Houtem': ['Zottegem', 'Herzele', 'Sint-Lievens-Houtem'],
+    'Sint-Niklaas': ['Sint-Niklaas'],
+    'Lokeren': ['Lokeren'],
+    'Hamme/Waasmunster': ['Hamme', 'Waasmunster'],
+    'Berlare/Zele': ['Berlare', 'Zele'],
+    'Buggenhout/Lebbeke': ['Buggenhout', 'Lebbeke'],
+    'Wetteren/Laarne/Wichelen': ['Wetteren', 'Laarne', 'Wichelen'],
+    'Denderleeuw/Haaltert': ['Denderleeuw', 'Haaltert'],
+    'Aalst': ['Aalst'],
+    'Erpe-Mere/Lede': ['Erpe-Mere', 'Lede'],
+    'Ninove': ['Ninove'],
+    'Dendermonde': ['Dendermonde'],
+    'Deinze-Zulte-Lievegem': ['Deinze', 'Zulte', 'Lievegem'],
+    'Aalter/Maldegem': ['Aalter', 'Maldegem'],
+    'Scheldewaas': ['Beveren-Kruibeke-Zwijndrecht', 'Sint-Gillis-Waas', 'Stekene', 'Temse'],
+    'Vlaamse Ardennen': ['Brakel', 'Horebeke', 'Kluisbergen', 'Kruisem', 'Maarkedal', 'Oudenaarde', 'Wortegem-Petegem', 'Zwalm'],
+    'Brugge': ['Brugge'],
+    'Blankenberge/Zuienkerke': ['Blankenberge', 'Zuienkerke'],
+    'Damme/Knokke-Heist': ['Damme', 'Knokke-Heist'],
+    'Het Houtsche': ['Beernem', 'Oostkamp', 'Zedelgem'],
+    'Regio Tielt': ['Ardooie', 'Lichtervelde', 'Pittem', 'Tielt', 'Wingene'],
+    'Oostende': ['Oostende'],
+    'Bredene/De Haan': ['Bredene', 'De Haan'],
+    'Middelkerke': ['Middelkerke'],
+    'Kouter': ['Gistel', 'Ichtegem', 'Jabbeke', 'Oudenburg', 'Torhout'],
+    'RIHO': ['Roeselare', 'Izegem', 'Hooglede'],
+    'MIDOW': ['Ingelmunster', 'Dentergem', 'Oostrozebeke', 'Wielsbeke'],
+    'Grensleie': ['Ledegem', 'Menen', 'Wevelgem'],
+    'VLAS': ['Kortrijk', 'Kuurne', 'Lendelede'],
+    'MIRA': ['Anzegem', 'Avelgem', 'Spiere-Helkijn', 'Waregem', 'Zwevegem'],
+    'Gavers': ['Deerlijk', 'Harelbeke'],
+    'Spoorkin': ['Alveringem', 'Lo-Reninge', 'Veurne'],
+    'Polder': ['Diksmuide', 'Houthulst', 'Koekelare', 'Kortemark'],
+    'Westkust': ['De Panne', 'Koksijde', 'Nieuwpoort'],
+    'ARRO Ieper': ['Heuvelland', 'Langemark-Poelkapelle', 'Mesen', 'Moorslede', 'Poperinge', 'Staden', 'Vleteren', 'Wervik', 'Ieper', 'Zonnebeke'],
+    'Brussel HOOFDSTAD Elsene': ['Brussel', 'Elsene'],
+    'Brussel-West': ['Sint-Jans-Molenbeek', 'Koekelberg', 'Jette', 'Ganshoren', 'Sint-Agatha-Berchem'],
+    'Zuid': ['Anderlecht', 'Vorst', 'Sint-Gillis'],
+    'Ukkel/Watermaal-Bosvoorde/Oudergem': ['Oudergem', 'Ukkel', 'Watermaal-Bosvoorde'],
+    'Montgomery': ['Etterbeek', 'Sint-Lambrechts-Woluwe', 'Sint-Pieters-Woluwe'],
+    'Evere/Schaarbeek/Sint-Joost-ten-Node': ['Evere', 'Sint-Joost-ten-Node', 'Schaarbeek'],
+    'Nivelles/Genappe': ['Nijvel', 'Genepiën'],
+    'Ouest Brabant Wallon': ['Kasteelbrakel', 'Itter', 'Rebecq', 'Tubeke'],
+    'La Mazerine': ['Terhulpen', 'Lasne', 'Rixensart'],
+    'Orne-Thyle': ['Chastre', 'Court-Saint-Étienne', 'Mont-Saint-Guibert', 'Villers-la-Ville', 'Walhain'],
+    'Wavre': ['Waver'],
+    'Ardennes Brabançonnes': ['Bevekom', 'Chaumont-Gistoux', 'Graven', 'Incourt'],
+    "Braine-l'Alleud": ['Eigenbrakel'],
+    'Waterloo': ['Waterloo'],
+    'Ottignies-Louvain-la-Neuve': ['Ottignies-Louvain-la-Neuve'],
+    'Brabant Wallon Est': ['Hélécine', 'Geldenaken', 'Orp-Jauche', 'Perwijs', 'Ramillies'],
+    'Liège': ['Luik'],
+    'Seraing/Neupré': ['Seraing', 'Neupré'],
+    'Herstal': ['Herstal'],
+    'Beyne-Heusay/Fléron/Soumagne': ['Beyne-Heusay', 'Fléron', 'Soumagne'],
+    'Basse Meuse': ['Bitsingen', 'Blegny', 'Dalhem', 'Juprelle', 'Oupeye', 'Wezet'],
+    'Flémalle': ['Flémalle'],
+    'Secova': ['Aywaille', 'Chaudfontaine', 'Esneux', 'Sprimont', 'Trooz'],
+    'Ans/Saint-Nicolas': ['Ans', 'Saint-Nicolas'],
+    'Grâce-Hollogne/Awans': ['Grâce-Hollogne', 'Awans'],
+    'Hesbaye': ['Berloz', 'Crisnée', 'Donceel', 'Faimes', 'Fexhe-le-Haut-Clocher', 'Geer', 'Oerle', 'Remicourt', 'Borgworm'],
+    'Des Fagnes': ['Jalhay', 'Spa', 'Theux'],
+    'Pays de Herve': ['Aubel', 'Baelen', 'Herve', 'Limburg', 'Olne', 'Plombières', 'Thimister-Clermont', 'Welkenraedt'],
+    'Vesdre': ['Dison', 'Pepinster', 'Verviers'],
+    'Stavelot/Malmedy': ['Lierneux', 'Malmedy', 'Stavelot', 'Stoumont', 'Trois-Ponts', 'Weismes'],
+    'Hesbaye-Ouest': ['Braives', 'Burdinne', 'Hannuit', 'Héron', 'Lijsem', 'Wasseiges'],
+    'Meuse-Hesbaye': ['Amay', 'Engis', 'Saint-Georges-sur-Meuse', 'Verlaine', 'Villers-le-Bouillet', 'Wanze'],
+    'Huy': ['Hoei'],
+    'Du Condroz': ['Anthisnes', 'Clavier', 'Comblain-au-Pont', 'Ferrières', 'Hamoir', 'Marchin', 'Modave', 'Nandrin', 'Ouffet', 'Tinlot'],
+    'Arlon/Attert/Habay/Martelange': ['Aarlen', 'Attert', 'Habay', 'Martelange'],
+    'Sud-Luxembourg': ['Aubange', 'Messancy', 'Musson', 'Saint-Léger'],
+    'De Gaume': ['Chiny', 'Étalle', 'Florenville', 'Meix-devant-Virton', 'Rouvroy', 'Tintigny', 'Virton'],
+    'Famenne Ardenne': ['Durbuy', 'Érezée', 'Gouvy', 'Hotton', 'Houffalize', 'La Roche-en-Ardenne', 'Manhay', 'Marche-en-Famenne', 'Nassogne', 'Rendeux', 'Tenneville', 'Vielsalm'],
+    'Centre Ardenne': ['Bastenaken', 'Fauvillers', 'Léglise', 'Libramont-Chevigny', 'Neufchâteau', 'Sainte-Ode', 'Vaux-sur-Sûre'],
+    'Semois et Lesse': ['Bertrix', 'Bouillon', 'Daverdisse', 'Herbeumont', 'Libin', 'Paliseul', 'Saint-Hubert', 'Tellin', 'Wellin'],
+    'Namur': ['Namen'],
+    'Orneau-Mehaigne': ['Éghezée', 'Gembloers', 'La Bruyère'],
+    'Des Arches': ['Andenne', 'Assesse', 'Fernelmont', 'Gesves', 'Ohey'],
+    'Entre Sambre et Meuse': ['Floreffe', 'Fosses-la-Ville', 'Mettet', 'Profondeville'],
+    'Samsom': ['Sambreville', 'Sombreffe'],
+    'Jemeppe-sur-Sambre': ['Jemeppe-sur-Sambre'],
+    'Flowal': ['Florennes', 'Walcourt'],
+    'Houille-Semois': ['Beauraing', 'Bièvre', 'Gedinne', 'Vresse-sur-Semois'],
+    'Des 3 Vallées': ['Couvin', 'Viroinval'],
+    'Haute-Meuse': ['Anhée', 'Dinant', 'Hastière', 'Onhaye', 'Yvoir'],
+    'Lesse et Lhomme': ['Houyet', 'Rochefort'],
+    'Condroz Famenne': ['Ciney', 'Hamois', 'Havelange', 'Somme-Leuze'],
+    'Hermeton et Heure': ['Cerfontaine', 'Doische', 'Philippeville'],
+    'Du Tournaisis': ['Doornik', 'Brunehaut', 'Rumes', 'Antoing'],
+    'Mouscron': ['Moeskroen'],
+    'Comines-Warneton': ['Komen-Waasten'],
+    'Beloeil/Leuze-en-Hainaut': ['Belœil', 'Leuze-en-Hainaut'],
+    'Ath': ['Aat'],
+    "Du Val de l'Escaut": ['Celles', 'Estaimpuis', "Mont-de-l'Enclus", 'Pecq'],
+    'Bernissart/Péruwelz': ['Bernissart', 'Péruwelz'],
+    'Des Collines': ['Elzele', 'Vloesberg', 'Frasnes-lez-Anvaing', 'Lessen'],
+    'Mons/Quévy': ['Bergen', 'Quévy'],
+    'La Louvière': ['La Louvière'],
+    'Sylle et Dendre': ['Brugelette', 'Chièvres', 'Edingen', 'Jurbeke', 'Lens', 'Opzullik'],
+    'Boraine': ['Boussu', 'Colfontaine', 'Frameries', 'Quaregnon', 'Saint-Ghislain'],
+    'Haute Senne': ["'s-Gravenbrakel", 'Écaussinnes', 'Le Rœulx', 'Zinnik'],
+    'Des Hauts-Pays': ['Dour', 'Hensies', 'Honnelles', 'Quiévrain'],
+    'Charleroi': ['Charleroi'],
+    'Aiseau-Presles/Châtelet/Farciennes': ['Aiseau-Presles', 'Châtelet', 'Farciennes'],
+    'Botte du Hainaut': ['Beaumont', 'Chimay', 'Froidchapelle', 'Momignies', 'Sivry-Rance'],
+    'Mariemont': ['Chapelle-lez-Herlaimont', 'Manage', 'Morlanwelz', 'Seneffe'],
+    'Des Trieux': ['Courcelles', "Fontaine-l'Evêque"],
+    'Brunau': ['Fleurus', 'Les Bons Villers', 'Pont-à-Celles'],
+    'Germinalt': ['Gerpinnes', 'Ham-sur-Heure-Nalinnes', 'Montigny-le-Tilleul', 'Thuin'],
+    'Binche-Anderlues-Lermes': ['Anderlues', 'Binche', 'Lobbes', 'Erquelinnes', 'Merbes-le-Château', 'Estinnes'],
 }
 
 
@@ -598,6 +791,7 @@ UNSUPPORTED_AGGREGATION = {
 #   'deelgemeente' -> directe lookup in NL_STADSDEEL_INWONERS (Amsterdam
 #                     stadsdelen heetten formeel "deelgemeente" tot 2010;
 #                     Rotterdamse deelgemeenten zijn in 2014 afgeschaft)
+#   'politiezone'  -> aparte aggregatie via BE_POLITIEZONE_GEMEENTEN
 TYPE_TO_REFERENCE = {
     'gemeente_nl':       'nl_gemeenten',
     'gemeente_be':       'be_gemeenten',
@@ -609,7 +803,6 @@ TYPE_TO_REFERENCE = {
     'landkreis':         'de_landkreise',
     'landratsamt':       'de_landkreise',   # Landratsamt X -> match op Landkreis X
     'verbandsgemeinde':  'de_verbandsgemeinden',
-    'politiezone':       'be_politiezones',
     'land':              'caribbean_countries',
 }
 
@@ -749,6 +942,28 @@ def enrich_record(row, ref_data, gemeenten_nl):
                 'cx_population_new':  total,
                 'peildatum_inwoners': peildatum,
                 'bron':               f'aggregatie NL gemeenten (Wikidata) voor waterschap {used_key}',
+                'proces':             note,
+            })
+        else:
+            result['proces'] = note
+        return result
+
+    # Aggregatie: BE politiezone (Wikidata heeft geen P1082 voor politiezones)
+    if etype == 'politiezone':
+        gemeenten_be = ref_data.get('be_gemeenten')
+        members, used_key = _resolve_mapping(canon, BE_POLITIEZONE_GEMEENTEN)
+        if used_key is None:
+            result['proces'] = f'politiezone "{canon}" niet in BE_POLITIEZONE_GEMEENTEN-tabel'
+            return result
+        if not members:
+            result['proces'] = f'politiezone "{used_key}": ledenlijst leeg'
+            return result
+        total, peildatum, n, _missing, note = aggregate_sum(members, gemeenten_be)
+        if total:
+            result.update({
+                'cx_population_new':  total,
+                'peildatum_inwoners': peildatum,
+                'bron':               f'aggregatie BE gemeenten (Wikidata) voor politiezone {used_key}',
                 'proces':             note,
             })
         else:

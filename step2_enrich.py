@@ -586,6 +586,23 @@ def deduplicate_keep_latest(df):
     return df
 
 
+def data_leeftijd_jaren(peildatum_str):
+    """
+    Aantal jaren tussen RUN_DATE en het jaar in peildatum_inwoners.
+    Returnt None als peildatum leeg of onparseerbaar is. Hoog getal = oude
+    statistiek - bijvoorbeeld een gemeente die sindsdien is gefuseerd, of
+    een bron die niet meer geactualiseerd wordt.
+    """
+    if not peildatum_str:
+        return None
+    try:
+        year = int(str(peildatum_str)[:4])
+    except (ValueError, TypeError):
+        return None
+    current_year = int(RUN_DATE[:4])
+    return current_year - year
+
+
 def parse_population(value):
     """
     Parsed een populatie-waarde naar int. Wikidata kan waardes teruggeven als
@@ -1086,6 +1103,7 @@ def enrich_dataframe(df, ref_data, overrides):
             rec['proces'] = f'override: {reden}' if reden else 'override'
             rec['match_score'] = None
             rec['invuldatum'] = RUN_DATE
+            rec['data_leeftijd_jaren'] = None
             out_records.append(rec)
             continue
 
@@ -1113,6 +1131,7 @@ def enrich_dataframe(df, ref_data, overrides):
 
         rec['match_score'] = result['match_score']
         rec['invuldatum'] = RUN_DATE
+        rec['data_leeftijd_jaren'] = data_leeftijd_jaren(rec['peildatum_inwoners'])
         out_records.append(rec)
 
         if (i + 1) % log_every == 0:
@@ -1129,9 +1148,11 @@ def write_output(df, output_path):
     """Schrijft accounts-tab + draaitabel-tab + run-log-tab."""
     log.info(f"\n=== Output schrijven naar {output_path} ===")
 
-    # Order: metadata-kolommen achteraan
-    meta_cols = ['previous_population', 'peildatum_inwoners', 'bron', 'proces',
-                 'match_score', 'invuldatum']
+    # Order: metadata-kolommen achteraan.
+    # data_leeftijd_jaren = aantal jaren tussen run-datum en peildatum_inwoners.
+    # Hoog getal (~5+) signaleert mogelijk historische gemeente of verouderde bron.
+    meta_cols = ['previous_population', 'peildatum_inwoners', 'data_leeftijd_jaren',
+                 'bron', 'proces', 'match_score', 'invuldatum']
     primary_cols = [c for c in df.columns if c not in meta_cols]
     df = df[primary_cols + [c for c in meta_cols if c in df.columns]]
 

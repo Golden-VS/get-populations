@@ -16,11 +16,8 @@ ENV/
 reference/
 
 # CRM data (real customer records — keep out of git)
-step1_classified.xlsx
-step1_review_sample.xlsx
-step2_enriched.xlsx
-test.xlsx
-overrides.xlsx
+*.xlsx
+segment_cache.csv
 
 # Local Claude Code settings
 .claude/

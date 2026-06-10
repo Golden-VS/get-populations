@@ -29,6 +29,12 @@ GEBRUIK:
     python step1b_segment.py --input step1_classified.xlsx \\
         --output step1b_segmented.xlsx
 
+    # Met websearch-ronde: zwakke classificaties (Unknown / Commercial (other) /
+    # confidence low) gaan in een tweede pass met de web_search tool, zodat
+    # Claude de organisatie echt kan opzoeken (naam + adres)
+    python step1b_segment.py --input step1_classified.xlsx \\
+        --output step1b_segmented.xlsx --web-search
+
     # Offline: alleen mapping + cache, geen API-calls
     python step1b_segment.py --input step1_classified.xlsx \\
         --output step1b_segmented.xlsx --offline
@@ -118,8 +124,8 @@ SEGMENTS = [
     'Retail & wholesale',
     'Telecom',
     # Vangnetten
-    'Other',
-    'Unknown',
+    'Commercial (other)',   # zeker commercieel, branche onbekend of past niet in de lijst
+    'Unknown',              # helemaal niets vast te stellen
 ]
 
 # Laag 1: deterministische mapping van detected_type -> (Segment, detailed).
@@ -211,13 +217,37 @@ REGELS:
   / Housing corporation.
 - Zorginstellingen (zorggroep, verpleeghuis, thuiszorg, GGZ, ziekenhuis) ->
   Healthcare & social care.
-- Als de naam niets prijsgeeft en het adres ook niet helpt: segment "Unknown",
-  segment_detailed "Unknown", confidence low. NIET raden bij volstrekt
-  onherkenbare namen.
-- Het veld "businesstype" in de invoer is een onbetrouwbaar CRM-veld: gebruik het
-  alleen als zwakke hint, nooit als doorslaggevend bewijs.
+- Elke account heeft een "voorlopige typering" uit een eerdere regelgebaseerde stap:
+  * "commercieel": vrijwel zeker een commercieel bedrijf, alleen de branche is nog
+    onbekend. Kies dan NOOIT "Unknown". Als de branche niet te bepalen is, kies
+    "Commercial (other)" met segment_detailed "Commercial (unspecified)".
+  * "mogelijk gemeente": kan een gemeente zijn; weeg dat mee.
+  * "onbekend": geen voorinformatie.
+- Het veld "businesstype" is een onbetrouwbaar CRM-veld. Maar als de naam niets
+  prijsgeeft, mag je het gebruiken om een segment te kiezen (confidence dan
+  maximaal medium).
+- Alleen als naam, adres en businesstype samen niets opleveren EN de voorlopige
+  typering "onbekend" is: segment "Unknown", segment_detailed "Unknown",
+  confidence low.
 - Geef voor ELK account in de invoer precies een classificatie terug, met het
   juiste volgnummer."""
+
+# Extra instructie voor de websearch-ronde (zwakke classificaties, tweede pass)
+SEARCH_INSTRUCTIONS = """
+EXTRA - WEBSEARCH-RONDE: voor deze accounts leverde naam + adres alleen geen
+duidelijke classificatie op. Je hebt nu een web_search tool. Gebruik per account
+maximaal 2 gerichte zoekopdrachten (bijvoorbeeld bedrijfsnaam + plaats, of
+bedrijfsnaam + adres zoals "CDI Hurst House") om te achterhalen wat de
+organisatie doet. Baseer je classificatie op wat je vindt. Vind je niets
+bruikbaars, val dan terug op de standaardregels hierboven."""
+
+
+# Vertaling van detected_type naar de "voorlopige typering" in het prompt
+DTYPE_TO_HINT = {
+    'commercieel_of_overig': 'commercieel',
+    'gemeente_unclear':      'mogelijk gemeente',
+    'onbekend':              'onbekend',
+}
 
 
 def build_user_message(batch_records):
@@ -233,6 +263,8 @@ def build_user_message(batch_records):
             parts.append(f"adres: {rec['address']}")
         if rec.get('businesstype'):
             parts.append(f"businesstype (onbetrouwbaar): {rec['businesstype']}")
+        hint = DTYPE_TO_HINT.get(rec.get('dtype', ''), 'onbekend')
+        parts.append(f"voorlopige typering: {hint}")
         lines.append(' | '.join(parts))
     return 'Classificeer deze accounts:\n\n' + '\n'.join(lines)
 
@@ -259,24 +291,40 @@ def make_models():
     return SegmentBatch
 
 
-def classify_batch(client, model, batch_records, segment_batch_model):
+def classify_batch(client, model, batch_records, segment_batch_model,
+                   web_search=False):
     """
     Stuurt een batch accounts naar de Claude API en geeft een lijst dicts
-    terug (volgnummer -> classificatie). Gooit exception bij API-fouten;
-    de aanroeper vangt die per batch af.
+    terug (volgnummer -> classificatie). Met web_search=True krijgt Claude
+    de server-side websearch-tool en extra zoekinstructies (gebruikt voor
+    de tweede ronde met zwakke classificaties). Gooit exception bij
+    API-fouten; de aanroeper vangt die per batch af.
     """
+    system_text = SYSTEM_PROMPT + (SEARCH_INSTRUCTIONS if web_search else '')
+    kwargs = {}
+    if web_search:
+        # max_uses begrenst het aantal zoekopdrachten per request
+        # (~2 per account bij kleine batches).
+        kwargs['tools'] = [{
+            'type': 'web_search_20260209',
+            'name': 'web_search',
+            'max_uses': 2 * len(batch_records),
+        }]
+
     response = client.messages.parse(
         model=model,
         max_tokens=16000,
         thinking={'type': 'adaptive'},
         system=[{
             'type': 'text',
-            'text': SYSTEM_PROMPT,
-            # Prompt caching: systemprompt is identiek voor alle batches.
+            'text': system_text,
+            # Prompt caching: systemprompt is identiek voor alle batches
+            # (binnen dezelfde ronde).
             'cache_control': {'type': 'ephemeral'},
         }],
         messages=[{'role': 'user', 'content': build_user_message(batch_records)}],
         output_format=segment_batch_model,
+        **kwargs,
     )
     parsed = response.parsed_output
 
@@ -382,6 +430,10 @@ def parse_args():
     p.add_argument('--refresh-segments', action='store_true', help='Cache negeren, alles opnieuw')
     p.add_argument('--model',            default=DEFAULT_MODEL, help=f'Claude-model (default {DEFAULT_MODEL})')
     p.add_argument('--batch-size',       type=int, default=BATCH_SIZE, help=f'Accounts per API-call (default {BATCH_SIZE})')
+    p.add_argument('--web-search',       action='store_true',
+                   help='Tweede ronde met websearch voor zwakke classificaties '
+                        '(Unknown / Commercial (other) / confidence low). '
+                        'Kost ~$10 per 1000 zoekopdrachten extra.')
     return p.parse_args()
 
 
@@ -411,7 +463,10 @@ def main():
     # ------------------------------------------------------------------
     # Laag 1: deterministische mapping + verzamelen van Claude-werk
     # ------------------------------------------------------------------
-    claude_queue = []   # list van (row_idx, record_dict)
+    claude_queue = []     # list van (row_idx, record_dict) - nog te classificeren
+    layer2_records = {}   # row_idx -> record_dict (alle laag-2 records, ook cached;
+                          # nodig om zwakke resultaten in de websearch-ronde opnieuw
+                          # aan te bieden)
     n_mapped = n_skipped = n_cached = 0
 
     for idx, row in enumerate(df.itertuples(index=False)):
@@ -436,6 +491,16 @@ def main():
             continue
 
         if dtype in CLAUDE_TYPES or dtype == '':
+            record = {
+                'accountid': accountid,
+                'name': clean(name),
+                'country': clean(rec.get('detected_country') or rec.get('cx_address1_country') or '', 40),
+                'city': clean(rec.get('cx_address3_city') or '', 60),
+                'address': clean(rec.get('address1_composite') or '', 120),
+                'businesstype': clean(rec.get('cx_businesstype') or '', 60),
+                'dtype': dtype,
+            }
+            layer2_records[idx] = record
             # Cache vergelijkt op de geschoonde naam (zelfde vorm als opgeslagen)
             cached = cache.get(accountid)
             if cached and cached['name'] == clean(name):
@@ -446,14 +511,7 @@ def main():
                 col_datum[idx] = cached['invuldatum']
                 n_cached += 1
                 continue
-            claude_queue.append((idx, {
-                'accountid': accountid,
-                'name': clean(name),
-                'country': clean(rec.get('detected_country') or rec.get('cx_address1_country') or '', 40),
-                'city': clean(rec.get('cx_address3_city') or '', 60),
-                'address': clean(rec.get('address1_composite') or '', 120),
-                'businesstype': clean(rec.get('cx_businesstype') or '', 60),
-            }))
+            claude_queue.append((idx, record))
         else:
             # Onbekend detected_type dat niet in de mapping staat: signaleren
             col_bron[idx] = f'detected_type "{dtype}" niet in TYPE_TO_SEGMENT'
@@ -462,47 +520,37 @@ def main():
              f'{n_skipped} overgeslagen (marker), {len(claude_queue)} voor Claude')
 
     # ------------------------------------------------------------------
-    # Laag 2: Claude API in batches
+    # Laag 2: Claude API in batches (ronde 1 zonder, ronde 2 met websearch)
     # ------------------------------------------------------------------
-    if claude_queue and args.offline:
-        log.info(f'Offline-modus: {len(claude_queue)} records blijven ongeclassificeerd')
-    elif claude_queue:
-        if not os.environ.get('ANTHROPIC_API_KEY'):
-            log.error('ANTHROPIC_API_KEY niet gezet. Zet de variabele of draai met --offline.')
-            raise SystemExit(1)
-
-        import anthropic
-        client = anthropic.Anthropic()
-        segment_batch_model = make_models()
-
-        batches = [claude_queue[i:i + args.batch_size]
-                   for i in range(0, len(claude_queue), args.batch_size)]
-        log.info(f'Claude-classificatie: {len(claude_queue)} records in '
-                 f'{len(batches)} batches van max {args.batch_size} (model {args.model})')
-
+    def run_batches(queue, batch_size, web_search, label):
+        """Draait classify_batch over een queue en werkt kolommen + cache bij."""
+        bron_label = f'Claude {args.model}' + (' + websearch' if web_search else '')
+        batches = [queue[i:i + batch_size] for i in range(0, len(queue), batch_size)]
+        log.info(f'{label}: {len(queue)} records in {len(batches)} batches '
+                 f'van max {batch_size} (model {args.model})')
         n_classified = n_failed = 0
         for b_i, batch in enumerate(batches, start=1):
             records = [r for _, r in batch]
             start = time.time()
             try:
-                results = classify_batch(client, args.model, records, segment_batch_model)
+                results = classify_batch(client, args.model, records,
+                                          segment_batch_model, web_search=web_search)
             except Exception as e:
                 log.warning(f'  batch {b_i}/{len(batches)} GEFAALD: {e}')
                 n_failed += len(batch)
                 continue
-
             for (idx, rec), res in zip(batch, results):
                 col_segment[idx] = res['segment']
                 col_detailed[idx] = res['segment_detailed']
                 col_confidence[idx] = res['confidence']
-                col_bron[idx] = f'Claude {args.model}'
+                col_bron[idx] = bron_label
                 col_datum[idx] = RUN_DATE
                 cache[rec['accountid']] = {
                     'name': rec['name'],
                     'segment': res['segment'],
                     'segment_detailed': res['segment_detailed'],
                     'confidence': res['confidence'],
-                    'bron': f'Claude {args.model}',
+                    'bron': bron_label,
                     'invuldatum': RUN_DATE,
                 }
             n_classified += len(batch)
@@ -511,9 +559,44 @@ def main():
             save_cache(cache)
             duration = time.time() - start
             log.info(f'  batch {b_i}/{len(batches)} klaar in {duration:.0f}s '
-                     f'({n_classified}/{len(claude_queue)})')
+                     f'({n_classified}/{len(queue)})')
+        log.info(f'{label} klaar: {n_classified} geclassificeerd, {n_failed} gefaald')
 
-        log.info(f'Claude klaar: {n_classified} geclassificeerd, {n_failed} gefaald')
+    def is_weak(idx):
+        """Zwakke classificatie: kandidaat voor de websearch-ronde."""
+        return (col_segment[idx] in ('Unknown', 'Commercial (other)', '')
+                or col_confidence[idx] == 'low')
+
+    needs_api = bool(claude_queue)
+    if args.web_search and not args.offline:
+        needs_api = needs_api or any(is_weak(i) for i in layer2_records)
+
+    if needs_api and args.offline:
+        log.info(f'Offline-modus: {len(claude_queue)} records blijven ongeclassificeerd')
+    elif needs_api:
+        if not os.environ.get('ANTHROPIC_API_KEY'):
+            log.error('ANTHROPIC_API_KEY niet gezet. Zet de variabele of draai met --offline.')
+            raise SystemExit(1)
+
+        import anthropic
+        client = anthropic.Anthropic()
+        segment_batch_model = make_models()
+
+        # Ronde 1: zonder websearch, grote batches
+        if claude_queue:
+            run_batches(claude_queue, args.batch_size, web_search=False,
+                        label='Claude-classificatie (ronde 1)')
+
+        # Ronde 2: zwakke resultaten opnieuw, nu met websearch in kleine
+        # batches. Pakt ook zwakke resultaten uit de cache van eerdere runs.
+        if args.web_search:
+            pass2_queue = [(idx, layer2_records[idx])
+                           for idx in sorted(layer2_records) if is_weak(idx)]
+            if pass2_queue:
+                run_batches(pass2_queue, min(5, args.batch_size), web_search=True,
+                            label='Websearch-ronde (ronde 2)')
+            else:
+                log.info('Websearch-ronde: geen zwakke classificaties, overgeslagen')
 
     # ------------------------------------------------------------------
     # Overrides (hoogste prioriteit)

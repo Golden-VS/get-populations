@@ -175,6 +175,27 @@ def _sparql_population_ags_template(bundesland_prefix):
     """
 
 
+def _sparql_population_kreis_template():
+    """
+    DE Landkreise: selecteert op de Kreisschluessel (P440) en sluit items
+    met een gemeentesleutel (P439) uit, zodat kreisfreie Staedte (die al
+    in de_gemeinden zitten) hier niet dubbel voorkomen. Resultaat: 295
+    items = precies de ~294 Landkreise (gemeten 2026-06-11).
+    wdt:P31 wd:Q106658 vond er maar 44 (subklassen per Bundesland).
+    """
+    return """
+    SELECT DISTINCT ?item ?itemLabel ?population ?date WHERE {
+      ?item wdt:P440 ?kreis .
+      FILTER NOT EXISTS { ?item wdt:P439 ?ags }
+      FILTER NOT EXISTS { ?item wdt:P576 ?dissolved }
+      ?item p:P1082 ?stmt .
+      ?stmt ps:P1082 ?population .
+      OPTIONAL { ?stmt pq:P585 ?date . }
+      SERVICE wikibase:label { bd:serviceParam wikibase:language "de,nl,en". }
+    }
+    """
+
+
 # Lijst van alle referentielijsten die we ophalen.
 # 'qid' = Wikidata-klasse-Q-ID, 'description' = mens-leesbaar.
 #
@@ -196,7 +217,11 @@ REFERENCE_SOURCES = [
     {'name': 'be_gemeenten',          'qid': 'wd:Q493522',   'description': 'BE gemeenten'},
     {'name': 'be_provincies',         'qid': 'wd:Q83116',    'description': 'BE provincies'},
     {'name': 'de_gemeinden',          'fetch': 'ags_chunked', 'description': 'DE gemeinden (AGS P439, per Bundesland)'},
-    {'name': 'de_landkreise',         'qid': 'wd:Q106658',   'description': 'DE landkreise'},
+    # strip_name_prefix_re: Wikidata-labels zijn "Landkreis X"/"Kreis X" maar
+    # de CRM canonical_name is "X" (step1 stript het prefix). Namen zonder
+    # prefix (Heidekreis, Rhein-Neckar-Kreis, Region Hannover) blijven intact.
+    {'name': 'de_landkreise',         'fetch': 'kreis_single', 'description': 'DE landkreise (P440 zonder P439)',
+     'strip_name_prefix_re': r'^(?:Landkreis|Kreis)\s+'},
     {'name': 'de_verbandsgemeinden',  'qid': 'wd:Q253019',   'description': 'DE verbandsgemeinden'},
 ]
 
@@ -771,12 +796,20 @@ def fetch_reference_data(source, user_agent, refresh=False, offline=False,
             log.info(f"  {prefix}{source['name']}: Bundesland {bl} klaar "
                      f"({i}/{len(DE_BUNDESLAND_PREFIXES)})")
         df = pd.concat(frames, ignore_index=True)
+    elif source.get('fetch') == 'kreis_single':
+        with heartbeat(f"{source['name']} downloaden"):
+            bindings = sparql_query(_sparql_population_kreis_template(), user_agent)
+        df = parse_sparql_to_dataframe(bindings)
     else:
         query = _sparql_population_template(source['qid'])
         # Heartbeat zorgt voor 'nog bezig'-updates tijdens lange queries
         with heartbeat(f"{source['name']} downloaden"):
             bindings = sparql_query(query, user_agent)
         df = parse_sparql_to_dataframe(bindings)
+    # Optioneel: naam-prefix strippen zodat referentienamen matchen met de
+    # canonical_name uit step1 (bv. "Landkreis Rostock" -> "Rostock").
+    if source.get('strip_name_prefix_re') and 'name' in df.columns and len(df):
+        df['name'] = df['name'].str.replace(source['strip_name_prefix_re'], '', regex=True)
     # SPARQL geeft alle population-statements terug (snelle query); we dedupliceren
     # naar de meest recente peildatum per item in Python.
     n_before = len(df)

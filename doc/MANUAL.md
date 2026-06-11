@@ -248,8 +248,9 @@ Step 2 uses four methods, depending on the type of organisation:
 
 | Method | Used for | Where it lives |
 |---|---|---|
-| **1. Wikidata lookup** - downloads reference lists with populations from Wikidata (free, no key), fuzzy-matches account names against them | NL/BE gemeenten and provincies, DE Gemeinden (via municipality key, per Bundesland), DE Landkreise (via district key), Caribbean countries | `REFERENCE_SOURCES` in `step2_enrich.py`; downloads cached in `reference/*.csv` |
-| **2. Sum of member gemeenten** - the entity's population = the sum of the municipalities it covers | BE politiezones (173 zones), NL veiligheidsregio's and omgevingsdiensten (partially filled) | `BE_POLITIEZONE_GEMEENTEN`, `NL_VEILIGHEIDSREGIO_GEMEENTEN`, `NL_OMGEVINGSDIENST_GEMEENTEN` tables in `step2_enrich.py` |
+| **1. Wikidata lookup** - downloads reference lists with populations from Wikidata (free, no key), fuzzy-matches account names against them | BE gemeenten and provincies, NL provincies, DE Gemeinden (via municipality key, per Bundesland), DE Landkreise (via district key), Caribbean countries, and *historical* NL gemeente names | `REFERENCE_SOURCES` in `step2_enrich.py`; downloads cached in `reference/*.csv` |
+| **1b. CBS open data** - the official "Gebieden in Nederland" table gives every *current* NL gemeente a current-year population plus its veiligheidsregio. The fetcher auto-discovers the newest yearly edition, so the annual table change needs no manual step | Current NL gemeenten (fresher than Wikidata); also feeds the veiligheidsregio mapping for method 2 | `fetch_cbs_gebieden()` in `step2_enrich.py`; cached in `reference/cbs_gebieden.csv` |
+| **2. Sum of member gemeenten** - the entity's population = the sum of the municipalities it covers | BE politiezones (173 zones), NL veiligheidsregio's (mapping auto-built from CBS, all 25 regions) and omgevingsdiensten (partially filled) | `BE_POLITIEZONE_GEMEENTEN`, `NL_OMGEVINGSDIENST_GEMEENTEN` tables in `step2_enrich.py`; veiligheidsregio mapping comes from CBS at run time (inline table is the fallback) |
 | **3. Direct-value tables** - hand-collected numbers with a source URL per entry, used where Wikidata has no data at all | NL waterschappen (21, from their own websites), Amsterdam stadsdelen (8, NL Wikipedia), DE Verbandsgemeinden (15, DE Wikipedia) | `NL_WATERSCHAP_INWONERS`, `NL_STADSDEEL_INWONERS`, `DE_VERBANDSGEMEINDE_INWONERS` tables in `step2_enrich.py` |
 | **4. Manual override** - corrections file, always wins | Any record | `--overrides` file (see above) |
 
@@ -270,6 +271,13 @@ every reference source is listed as OK / leeg (empty) / GEFAALD (failed).
    how every Q-ID/key was found and validated. Expected healthy counts:
    NL gemeenten ~1,300 (incl. historical), BE gemeenten ~565, NL provincies
    12, BE provincies 10, DE gemeinden ~11,400, DE landkreise ~290.
+
+**The CBS source fails:** the run does not stop - it logs a warning
+("cbs_gebieden GEFAALD") and falls back to Wikidata population figures and
+the built-in veiligheidsregio table. Values are then 1-2 years older but
+still correct. Remedy: delete `reference/cbs_gebieden.csv` and re-run; if
+CBS renamed the table series, check `discover_cbs_gebieden_table()` in
+`step2_enrich.py`.
 
 **A count is suddenly way off** (e.g. BE gemeenten drops to 50): treat as
 broken even if the run "succeeds" - the fuzzy matcher will quietly miss

@@ -242,6 +242,58 @@ Create e.g. `overrides_population.xlsx` with columns:
 and run with `--overrides overrides_population.xlsx`. Overrides win over
 every automatic lookup.
 
+### How the population values are sourced
+
+Step 2 uses four methods, depending on the type of organisation:
+
+| Method | Used for | Where it lives |
+|---|---|---|
+| **1. Wikidata lookup** - downloads reference lists with populations from Wikidata (free, no key), fuzzy-matches account names against them | NL/BE gemeenten and provincies, DE Gemeinden (via municipality key, per Bundesland), DE Landkreise (via district key), Caribbean countries | `REFERENCE_SOURCES` in `step2_enrich.py`; downloads cached in `reference/*.csv` |
+| **2. Sum of member gemeenten** - the entity's population = the sum of the municipalities it covers | BE politiezones (173 zones), NL veiligheidsregio's and omgevingsdiensten (partially filled) | `BE_POLITIEZONE_GEMEENTEN`, `NL_VEILIGHEIDSREGIO_GEMEENTEN`, `NL_OMGEVINGSDIENST_GEMEENTEN` tables in `step2_enrich.py` |
+| **3. Direct-value tables** - hand-collected numbers with a source URL per entry, used where Wikidata has no data at all | NL waterschappen (21, from their own websites), Amsterdam stadsdelen (8, NL Wikipedia), DE Verbandsgemeinden (15, DE Wikipedia) | `NL_WATERSCHAP_INWONERS`, `NL_STADSDEEL_INWONERS`, `DE_VERBANDSGEMEINDE_INWONERS` tables in `step2_enrich.py` |
+| **4. Manual override** - corrections file, always wins | Any record | `--overrides` file (see above) |
+
+If none of these produce a value, the old CRM value is kept (never blanked).
+Every output row's `bron` column says exactly which method and source
+produced its value.
+
+### When a source fails or looks wrong (yearly maintenance)
+
+Start with the **"Status per bron"** report at the end of the step 2 log:
+every reference source is listed as OK / leeg (empty) / GEFAALD (failed).
+
+**A Wikidata source is empty or failed:**
+1. Delete that source's file from `reference/` and re-run (forces a fresh
+   download; transient server errors are retried automatically).
+2. Still broken? The Wikidata class may have changed. Test the query on
+   https://query.wikidata.org/ and check `CHECKPOINT.md`, which documents
+   how every Q-ID/key was found and validated. Expected healthy counts:
+   NL gemeenten ~1,300 (incl. historical), BE gemeenten ~565, NL provincies
+   12, BE provincies 10, DE gemeinden ~11,400, DE landkreise ~290.
+
+**A count is suddenly way off** (e.g. BE gemeenten drops to 50): treat as
+broken even if the run "succeeds" - the fuzzy matcher will quietly miss
+records. Same remedy as above.
+
+**Direct-value tables age** (methods 3): the numbers drift ~1%/year.
+Refresh by checking each entry's `bron_url`; for waterschappen there is a
+built-in sanity check: the 21 values must sum to roughly the NL population
+(~18 million). A record that says *"niet in ...-tabel"* in its `proces`
+column means a new entity appeared (e.g. a new Verbandsgemeinde in the
+CRM): add one line to the relevant table with the figure from the source
+in the comment above that table.
+
+**Mapping tables outdated after a municipal reorganisation** (method 2):
+politiezone mergers happen in BE every year. The `BE_POLITIEZONE_GEMEENTEN`
+table was extracted from the NL Wikipedia page "Lijst van politiezones in
+België"; the extraction recipe is documented in `CHECKPOINT.md` and can be
+re-run.
+
+**General health checks after any run:**
+- `proces` column: filter on "geen match" / "niet in" to see what was missed.
+- `data_leeftijd_jaren` column: high values (5+) flag stale source data.
+- `previous_population` vs `cx_population`: large jumps deserve a look.
+
 ## 6. Next year's run (yearly refresh)
 
 1. Make a fresh DWH export following **step 0** at the top of this manual

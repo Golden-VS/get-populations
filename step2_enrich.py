@@ -253,6 +253,9 @@ SELECT ?item ?itemLabel ?population ?date WHERE {
 # gemeentelijke herindelingen. Bron: rijksoverheid.nl / regio-websites.
 # Kanonieke namen MOETEN matchen met namen in nl_gemeenten (post-normalisatie).
 
+# NB sinds 2026-06-11: deze tabel is alleen nog de FALLBACK. De actuele,
+# complete indeling (alle 25 regio's) komt uit CBS "Gebieden in Nederland"
+# via fetch_cbs_gebieden(); alleen als CBS faalt valt step2 hierop terug.
 NL_VEILIGHEIDSREGIO_GEMEENTEN = {
     'Brabant-Noord': [
         "'s-Hertogenbosch", "Bernheze", "Boekel", "Boxtel", "Heusden", "Land van Cuijk",
@@ -895,6 +898,141 @@ def fetch_caribbean(user_agent, refresh=False, offline=False, step_info=''):
     return df
 
 
+# ----------------------------------------------------------------------------
+# CBS "Gebieden in Nederland": verse inwonertallen voor ACTUELE NL gemeenten
+# plus de complete gemeente->veiligheidsregio-indeling. CBS publiceert elk
+# jaar een nieuwe tabel (2026: 86247NED) met per gemeente o.a. Inwonertal en
+# de Veiligheidsregio. Voordelen boven Wikidata: cijfers van het lopende
+# jaar (Wikidata loopt 1-2 jaar achter) en een onderhouden VR-indeling.
+# ----------------------------------------------------------------------------
+
+CBS_CATALOG_URL = 'https://opendata.cbs.nl/ODataCatalog/Tables'
+CBS_ODATA_URL = 'https://opendata.cbs.nl/ODataApi/odata'
+
+
+def discover_cbs_gebieden_table(user_agent):
+    """
+    Zoekt de nieuwste editie van 'Gebieden in Nederland' in de CBS-catalogus.
+    Het tabel-ID wisselt jaarlijks (85755NED=2024, 86059NED=2025, ...); door
+    hier te zoeken is de jaarwissel geen handmatige stap. Returnt (id, jaar).
+    """
+    r = requests.get(CBS_CATALOG_URL, params={
+        '$format': 'json',
+        '$filter': "substringof('gebieden in nederland',tolower(Title))",
+    }, headers={'User-Agent': user_agent}, timeout=60)
+    r.raise_for_status()
+    candidates = []
+    for t in r.json().get('value', []):
+        m = re.search(r'(\d{4})', t.get('Title', ''))
+        if m:
+            candidates.append((int(m.group(1)), t['Identifier']))
+    if not candidates:
+        raise RuntimeError("geen 'Gebieden in Nederland'-tabel in CBS-catalogus")
+    year, table_id = max(candidates)
+    return table_id, year
+
+
+def _cbs_resolve_keys(table_id, user_agent):
+    """
+    De OData-veldnamen verschillen per jaargang (Naam_2 / Naam_49 /
+    Inwonertal_56 in 2026). We zoeken ze op via DataProperties zodat de
+    jaarlijkse wissel vanzelf goed gaat.
+    """
+    r = requests.get(f'{CBS_ODATA_URL}/{table_id}/DataProperties',
+                     params={'$format': 'json'},
+                     headers={'User-Agent': user_agent}, timeout=60)
+    r.raise_for_status()
+    rows = r.json()['value']
+    groups = {p['ID']: p['Title'] for p in rows if p.get('Type') == 'TopicGroup'}
+    gem_key = vr_key = inw_key = None
+    for p in rows:
+        if p.get('Type') != 'Topic':
+            continue
+        group = groups.get(p.get('ParentID'), '')
+        if group == 'Codes en namen van gemeenten' and p['Title'] == 'Naam':
+            gem_key = p['Key']
+        elif group == "Veiligheidsregio's" and p['Title'] == 'Naam':
+            vr_key = p['Key']
+        elif p['Title'] == 'Inwonertal':
+            inw_key = p['Key']
+    if not all([gem_key, vr_key, inw_key]):
+        raise RuntimeError(f'CBS-velden niet gevonden (gemeente={gem_key}, '
+                           f'veiligheidsregio={vr_key}, inwonertal={inw_key})')
+    return gem_key, vr_key, inw_key
+
+
+def fetch_cbs_gebieden(user_agent, refresh=False, offline=False):
+    """
+    Levert (gemeenten_df, vr_mapping):
+      - gemeenten_df: name/population/date/qid van alle actuele gemeenten,
+        qid = 'CBS-<tabelid>' (zichtbaar in de bron-kolom van de output)
+      - vr_mapping: {veiligheidsregio: [gemeentenamen]} - vervangt de
+        handmatige NL_VEILIGHEIDSREGIO_GEMEENTEN zolang CBS bereikbaar is
+    Gecachet in reference/cbs_gebieden.csv.
+    """
+    path = cache_path('cbs_gebieden')
+    if offline or (not refresh and is_cache_fresh(path)):
+        if not path.exists():
+            raise FileNotFoundError(f'cache ontbreekt: {path}')
+        log.info(f'  cbs_gebieden <- cache {path}')
+        df = pd.read_csv(path)
+    else:
+        table_id, year = discover_cbs_gebieden_table(user_agent)
+        log.info(f'  cbs_gebieden <- CBS OData tabel {table_id} ({year})')
+        gem_key, vr_key, inw_key = _cbs_resolve_keys(table_id, user_agent)
+        r = requests.get(f'{CBS_ODATA_URL}/{table_id}/TypedDataSet',
+                         params={'$format': 'json'},
+                         headers={'User-Agent': user_agent}, timeout=120)
+        r.raise_for_status()
+        rows = []
+        for rec in r.json()['value']:
+            name = (rec.get(gem_key) or '').strip()
+            # CBS disambigueert met suffixen ("Groningen (gemeente)",
+            # "Beek (L.)"); strippen, anders mist de fuzzy match ze.
+            name = re.sub(r'\s*\([^)]*\)\s*$', '', name)
+            vr = (rec.get(vr_key) or '').strip()
+            vr = re.sub(r'^Veiligheidsregio\s+', '', vr)
+            pop = rec.get(inw_key)
+            if not name or pop is None:
+                continue
+            rows.append({'name': name, 'population': int(pop),
+                         'date': f'{year}-01-01', 'qid': f'CBS-{table_id}',
+                         'veiligheidsregio': vr})
+        df = pd.DataFrame(rows)
+        REFERENCE_DIR.mkdir(parents=True, exist_ok=True)
+        df.to_csv(path, index=False)
+        log.info(f'  cbs_gebieden klaar: {len(df)} actuele gemeenten, gecachet')
+
+    vr_mapping = {}
+    for vr, grp in df.groupby('veiligheidsregio'):
+        if isinstance(vr, str) and vr:
+            vr_mapping[vr] = sorted(grp['name'].tolist())
+
+    # Alias-rijen NA de vr_mapping toevoegen (anders telt een regio-som de
+    # gemeente dubbel): officiele CBS-namen die afwijken van de gangbare
+    # naam krijgen een extra rij, zodat beide vormen het verse cijfer matchen.
+    aliases = {"'s-Gravenhage": 'Den Haag'}
+    alias_rows = df[df['name'].isin(aliases)].copy()
+    if len(alias_rows):
+        alias_rows['name'] = alias_rows['name'].map(aliases)
+        df = pd.concat([df, alias_rows], ignore_index=True)
+
+    gemeenten = df[['name', 'population', 'date', 'qid']].copy()
+    return gemeenten, vr_mapping
+
+
+def merge_cbs_into_nl_gemeenten(cbs_df, wikidata_df):
+    """
+    CBS levert de actuele gemeenten met verse cijfers - die winnen. De
+    Wikidata-rijen blijven staan voor HISTORISCHE gemeentenamen die CBS niet
+    meer kent (bewuste keuze: een oud CRM-record met een oude gemeentenaam
+    krijgt het laatst bekende inwonertal van die oude gemeente).
+    """
+    cbs_norm = set(cbs_df['name'].map(normalize))
+    keep = wikidata_df[~wikidata_df['name'].map(normalize).isin(cbs_norm)]
+    return pd.concat([cbs_df, keep], ignore_index=True)
+
+
 def fetch_all_reference_data(user_agent, refresh=False, offline=False):
     total = len(REFERENCE_SOURCES) + 1   # +1 voor caribbean
     log.info(f"=== Referentiedata laden ({total} bronnen) ===")
@@ -910,6 +1048,22 @@ def fetch_all_reference_data(user_agent, refresh=False, offline=False):
     out['caribbean_countries'] = fetch_caribbean(
         user_agent, refresh, offline, step_info=step
     )
+
+    # CBS Gebieden in Nederland: verse cijfers voor actuele gemeenten +
+    # complete veiligheidsregio-mapping. Als CBS faalt draait de run gewoon
+    # door op Wikidata-cijfers en de inline veiligheidsregio-tabel.
+    try:
+        cbs_df, vr_mapping = fetch_cbs_gebieden(user_agent, refresh, offline)
+        n_before = len(out['nl_gemeenten'])
+        out['nl_gemeenten'] = merge_cbs_into_nl_gemeenten(cbs_df, out['nl_gemeenten'])
+        out['veiligheidsregio_mapping'] = vr_mapping
+        log.info(f"  CBS: {len(cbs_df)} actuele gemeenten (nl_gemeenten "
+                 f"{n_before} -> {len(out['nl_gemeenten'])} rijen), "
+                 f"veiligheidsregio-mapping: {len(vr_mapping)} regio's")
+    except Exception as e:
+        log.warning(f"  cbs_gebieden GEFAALD ({e}); fallback: Wikidata-cijfers "
+                    f"en inline veiligheidsregio-tabel")
+
     total_duration = int(time.time() - overall_start)
     log.info(f"=== Referentiedata klaar (totaal {total_duration}s) ===\n")
     return out
@@ -1072,7 +1226,10 @@ def enrich_record(row, ref_data, gemeenten_nl):
 
     # Aggregatie: veiligheidsregio
     if etype == 'veiligheidsregio':
-        members, used_key = _resolve_mapping(canon, NL_VEILIGHEIDSREGIO_GEMEENTEN)
+        # CBS-mapping (alle 25 regio's, jaarlijks vers) heeft voorrang; de
+        # inline tabel is de fallback als CBS niet bereikbaar was.
+        vr_mapping = ref_data.get('veiligheidsregio_mapping') or NL_VEILIGHEIDSREGIO_GEMEENTEN
+        members, used_key = _resolve_mapping(canon, vr_mapping)
         if not members:
             result['proces'] = f'veiligheidsregio "{canon}" niet in mapping-tabel'
             return result
@@ -1203,6 +1360,8 @@ def enrich_record(row, ref_data, gemeenten_nl):
         return result
 
     qid = matched.get('qid', '')
+    # nl_gemeenten bevat naast Wikidata-rijen ook CBS-rijen (qid 'CBS-...')
+    bron_label = str(qid) if str(qid).startswith('CBS') else f'Wikidata {qid}'
     peildatum = matched.get('date', '')
     if isinstance(peildatum, str) and peildatum:
         peildatum = peildatum[:4]
@@ -1221,7 +1380,7 @@ def enrich_record(row, ref_data, gemeenten_nl):
     result.update({
         'cx_population_new':  int(pop),
         'peildatum_inwoners': peildatum if peildatum else None,
-        'bron':               f'Wikidata {qid} ({ref_name})',
+        'bron':               f'{bron_label} ({ref_name})',
         'proces':             proces,
         'match_score':        int(score),
     })

@@ -629,7 +629,15 @@ def main():
         log.info(f'{label} klaar: {n_classified} geclassificeerd, {n_failed} gefaald')
 
     def is_weak(idx):
-        """Zwakke classificatie: kandidaat voor de websearch-ronde."""
+        """
+        Zwakke classificatie: kandidaat voor de websearch-ronde.
+        Records waarvan het resultaat al uit een eerdere websearch-poging
+        komt (bron bevat 'websearch') doen NIET opnieuw mee - anders betaalt
+        elke herrun opnieuw voor dezelfde hardnekkige gevallen. Een volledige
+        herclassificatie kan altijd met --refresh-segments.
+        """
+        if 'websearch' in col_bron[idx]:
+            return False
         return (col_segment[idx] in ('Unknown', 'Commercial (other)', '')
                 or col_confidence[idx] == 'low')
 

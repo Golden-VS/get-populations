@@ -240,7 +240,7 @@ classifications. If you ever want to force a complete re-classification
 | Option | What it does |
 |---|---|
 | `--test-mode` | Only the first 100 accounts |
-| `--web-search` | Second pass with web lookup for weak classifications (recommended) |
+| `--web-search` | Second pass with web lookup for weak classifications (recommended). Only searches records that were never websearched before, so re-runs stay cheap |
 | `--offline` | No API calls: mapping table + cache only |
 | `--model <id>` | Use a different Claude model (default `claude-opus-4-7`) |
 | `--overrides <file>` | Apply a manual corrections file |

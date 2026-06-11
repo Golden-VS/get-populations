@@ -347,9 +347,28 @@ def classify(row):
 # MAIN
 # ============================================================================
 
-def main(input_path='full_input.xlsx', output_path='step1_classified.xlsx'):
-    df = pd.read_excel(input_path, sheet_name=0)
+def read_input(path):
+    """
+    Leest de ruwe DWH-export. CSV is het standaardformaat (SSMS "Save Results
+    As": UTF-8 met BOM, komma-gescheiden, NULL als letterlijke tekst "NULL").
+    Excel blijft ondersteund voor oudere exports.
+    """
+    if str(path).lower().endswith('.csv'):
+        return pd.read_csv(path, encoding='utf-8-sig', na_values=['NULL'])
+    return pd.read_excel(path, sheet_name=0)
+
+
+def main(input_path='full_input.csv', output_path='step1_classified.xlsx'):
+    df = read_input(input_path)
     log.info(f"Ingelezen: {len(df)} records")
+
+    # De DWH-query hoort alleen actieve accounts te leveren (statecode = 0).
+    # Waarschuw als er toch gedeactiveerde records in zitten.
+    if 'statecode' in df.columns:
+        n_disabled = int((pd.to_numeric(df['statecode'], errors='coerce') != 0).sum())
+        if n_disabled:
+            log.warning(f"{n_disabled} records met statecode != 0 in de input - "
+                        f"is het WHERE statecode = 0 filter vergeten in de export?")
 
     # Pas classificatie toe
     extra = df.apply(classify, axis=1, result_type='expand')
@@ -398,8 +417,8 @@ def main(input_path='full_input.xlsx', output_path='step1_classified.xlsx'):
 
 def parse_args():
     p = argparse.ArgumentParser(description='Classificeert CRM-accounts op type en land.')
-    p.add_argument('--input',  default='full_input.xlsx',
-                   help='ruwe CRM-export (xlsx, default full_input.xlsx)')
+    p.add_argument('--input',  default='full_input.csv',
+                   help='ruwe DWH-export (csv of xlsx, default full_input.csv)')
     p.add_argument('--output', default='step1_classified.xlsx',
                    help='uitvoer-Excel pad (default step1_classified.xlsx)')
     return p.parse_args()

@@ -17,7 +17,7 @@ reference/
 
 # CRM data (real customer records — keep out of git)
 *.xlsx
-segment_cache.csv
+*.csv
 
 # Run logs (may contain account names)
 logs/

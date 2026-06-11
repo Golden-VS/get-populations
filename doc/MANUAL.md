@@ -6,15 +6,37 @@
 This manual describes the full enrichment pipeline, from raw CRM export to
 the final file with all added columns.
 
+## Getting the input from the data warehouse (step 0)
+
+1. Log into Microsoft SQL Server Management Studio (DWH).
+2. Connect to the DWH database.
+3. Go to Views -> `INT.Account`.
+4. Run:
+   ```sql
+   SELECT *
+   FROM [INT].[Account]
+   WHERE statecode = 0
+   ```
+   The `statecode = 0` filter keeps only **active** accounts; disabled
+   accounts are excluded from the pipeline.
+5. Right-click the results grid, choose **"Save Results As..."** and save
+   as `full_input.csv`.
+6. Copy `full_input.csv` to the project folder on the Linux server
+   (`/opt/cardano/cnode/claude-code/get-populations/`).
+
+The scripts read this CSV directly (UTF-8 with BOM, `NULL` text values are
+handled). If disabled records accidentally end up in the export, step 1
+logs a warning.
+
 ## The pipeline at a glance
 
 The scripts run as a chain. **Order matters**: each step's output is the
 next step's input, so all added columns accumulate into one final file.
 
 ```
-raw CRM export (e.g. full_input.xlsx)
+full_input.csv (DWH export, see step 0)
   |
-  |  python step1_classify.py --input full_input.xlsx --output step1_classified.xlsx
+  |  python step1_classify.py --input full_input.csv --output step1_classified.xlsx
   v
 step1_classified.xlsx          (+ type/country detection columns)
   |
@@ -36,6 +58,36 @@ Every run of every step also writes a timestamped log file to `logs/`
 (e.g. `logs/step1b_segment_2026-06-11_143052.log`), so a failed or
 unattended run can be diagnosed afterwards. The `logs/` folder stays out
 of git.
+
+---
+
+## Which steps need the paid Claude API?
+
+| Step | Needs |
+|---|---|
+| step 0 (DWH export) | Nothing (internal DWH access) |
+| step 1 (classify) | Nothing - runs locally, free |
+| step 1b (segment) | **Anthropic API key + prepaid credits** |
+| step 2 (population) | Nothing - Wikidata is free (just put a real contact email in `--user-agent`) |
+
+**Important:** a Claude.ai subscription (Pro or Max) does **not** cover API
+usage. The API is billed separately via prepaid credits, even if you
+already pay for a Claude subscription. Claude Code / claude.ai usage and
+API usage are two different wallets.
+
+### Getting an API key and credits (one-time)
+
+1. Go to [console.anthropic.com](https://console.anthropic.com) and sign
+   in (or create an account).
+2. Under **Billing / Plans & billing**, buy prepaid credits with a credit
+   card. $50 comfortably covers the first full run plus re-runs; yearly
+   refreshes after that cost a few dollars at most.
+3. Under **API Keys**, create a new key and copy the `sk-ant-...` value
+   (it is shown only once).
+4. Store it on the server:
+   ```bash
+   echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.bashrc
+   ```
 
 ---
 
@@ -150,9 +202,9 @@ python step2_enrich.py \
 
 ## 4. Next year's run (yearly refresh)
 
-1. Download a fresh account export from the data warehouse into this
-   folder (e.g. `full_input.xlsx`).
-2. Run the full chain from the pipeline diagram at the top of this manual:
+1. Make a fresh DWH export following **step 0** at the top of this manual
+   and place `full_input.csv` in the project folder.
+2. Run the full chain from the pipeline diagram:
    step 1 -> step 1b (with `--overrides ...` if you have a corrections
    file) -> step 2.
 3. Thanks to `segment_cache.csv`, only **new accounts and accounts whose

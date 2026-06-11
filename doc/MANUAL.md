@@ -1,10 +1,36 @@
 # Manual - Running the Account Enrichment Steps
 
 *Living document. We extend this manual as new steps are added.*
-*Last updated: 10 June 2026*
+*Last updated: 11 June 2026*
 
-This manual describes how to run the **segmentation** step (step1b), which
-adds the "Segment" and "Segment (detailed)" columns to the account list.
+This manual describes the full enrichment pipeline, from raw CRM export to
+the final file with all added columns.
+
+## The pipeline at a glance
+
+The scripts run as a chain. **Order matters**: each step's output is the
+next step's input, so all added columns accumulate into one final file.
+
+```
+raw CRM export (e.g. full_input.xlsx)
+  |
+  |  python step1_classify.py --input full_input.xlsx --output step1_classified.xlsx
+  v
+step1_classified.xlsx          (+ type/country detection columns)
+  |
+  |  python step1b_segment.py --input step1_classified.xlsx --output step1b_segmented.xlsx --web-search
+  v
+step1b_segmented.xlsx          (+ Segment, Segment (detailed) columns)
+  |
+  |  python step2_enrich.py --input step1b_segmented.xlsx --output final_enriched.xlsx \
+  |      --user-agent "your-org/1.0 (you@company.com)"
+  v
+final_enriched.xlsx            (+ population columns) <- THE final file
+```
+
+Step 1 is free and instant. Step 1b uses the Claude API (costs money, uses
+the cache). Step 2 uses Wikidata (free; the first run downloads reference
+data, which takes 5-10 minutes, after that it is cached in `reference/`).
 
 ---
 
@@ -96,15 +122,39 @@ python step1b_segment.py \
 
 Overrides always win over the automatic classification and cost nothing.
 
+## 3b. Population enrichment (step 2)
+
+After segmentation, run step 2 on **step1b's output** (not on
+step1_classified.xlsx, or the Segment columns will be missing from the
+final file):
+
+```bash
+python step2_enrich.py \
+    --input step1b_segmented.xlsx \
+    --output final_enriched.xlsx \
+    --user-agent "your-org/1.0 (you@company.com)"
+```
+
+- Wikidata requires a contact address in `--user-agent`; use a real email.
+- First run downloads reference data (5-10 min); later runs use the cache
+  in `reference/` (refreshed yearly automatically, or force with
+  `--refresh-cache`).
+- Use `--test-mode` here too when running for the first time.
+- `final_enriched.xlsx` is the complete file: original columns + type
+  detection + segments + population.
+
 ## 4. Next year's run (yearly refresh)
 
-1. Make a fresh CRM export and run step 1 (classification) on it, producing
-   a new `step1_classified.xlsx`.
-2. Copy that file to this folder and run the same full-run command as in
-   section 2 (plus `--overrides ...` if you have a corrections file).
+1. Download a fresh account export from the data warehouse into this
+   folder (e.g. `full_input.xlsx`).
+2. Run the full chain from the pipeline diagram at the top of this manual:
+   step 1 -> step 1b (with `--overrides ...` if you have a corrections
+   file) -> step 2.
 3. Thanks to `segment_cache.csv`, only **new accounts and accounts whose
    name changed** are sent to the AI. Everything else comes from the cache.
    Expected cost: a few dollars at most, usually cents.
+4. Step 2's `reference/` cache is older than 365 days by then, so it
+   re-downloads fresh Wikidata population data automatically.
 
 Do **not** delete `segment_cache.csv`; it is the memory of all previous
 classifications. If you ever want to force a complete re-classification
@@ -126,5 +176,4 @@ classifications. If you ever want to force a complete re-classification
 
 ## Future steps (to be added to this manual)
 
-- Running the population enrichment (step 2)
 - Importing the result columns into Dynamics 365

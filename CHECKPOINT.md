@@ -40,15 +40,20 @@ The output drives reporting on customer reach and territory size.
 ## Two-step pipeline
 
 ### Step 1: Classify (`step1_classify.py`)
-**Status: COMPLETE.** Output `step1_classified.xlsx` (6,004 records,
-9 added columns). NOT in this repo (lives on user's Windows machine). Per
-the previous CHECKPOINT: 2,253 records will get a population lookup;
-989 explicitly empty; 2,762 leave-empty.
-
-The classifier output is the input to step 2.
+**Status: COMPLETE; now IN THIS REPO** (since `f5687a8`, 2026-06-11; was
+Windows-only before). Input is `full_input.csv` straight from the DWH
+(SSMS "Save Results As" on [INT].[Account] WHERE statecode = 0; UTF-8 BOM
+and literal "NULL" strings handled). Current export: 6,118 records.
+Note vintage quirks vs older copies: emits 'samenwerking_nl' (older data
+had 'samenwerking'); downstream accepts both. Output feeds step 1b.
 
 ### Step 1b: Segment (`step1b_segment.py`) - NEW since 2026-06-10
-**Status: FINISHED; full production run started by user on 2026-06-10/11.**
+**Status: FINISHED; full production run COMPLETED 2026-06-11** (cache
+covers all 6,118 records; re-runs are cache-only and free). Also added:
+'Segment (category)' column (Governmental/Non-profit/Commercial/Unknown,
+derived from Segment via SEGMENT_TO_CATEGORY + DTYPE_CATEGORY_OVERRIDES)
+and websearch idempotency (already-websearched weak results are not
+re-billed on re-runs; --refresh-segments forces a redo).
 
 Adds "Segment" and "Segment (detailed)" columns to the step1 output.
 Two layers:
@@ -87,25 +92,22 @@ Key features (carried forward, unchanged):
 
 ---
 
-## Session summary (commits on `main`)
+## Session summary
 
-Run `git log --oneline` to see the latest. As of this checkpoint:
+Run `git log --oneline` for the full history. Highlights (newest first):
 
 | Commit | Topic |
 |---|---|
-| `1764a9a` | Waterschap: direct values via NL_WATERSCHAP_INWONERS, sum-validated (17.73M vs ~18.1M NL) |
-| `2117027` | doc/MANUAL.md operator runbook |
-| `5425b9d` | doc/PROJECT_OVERVIEW.md non-technical summary |
-| `b2e64bd` | step1b: Commercial (other) rule + --web-search second pass |
-| `56c63fe` | step1b_segment.py: Segment + Segment (detailed) columns |
-| `6ed0893` | CHECKPOINT refresh (2026-06-05) |
-| `017aa56` | Add `data_leeftijd_jaren` column for staleness visibility |
-| `3b307cf` | BE politiezones: aggregation via 173/176 zones from NL Wikipedia |
-| `3f69e18` | BE provincies Q-ID fix: `Q364356` -> `Q83116` (10 items, full P1082) |
-| `c3ad5e4` | Amsterdam stadsdelen: hardcoded values from NL Wikipedia infoboxes |
-| `5b31121` | NL waterschap: treat as aggregation, STUB mapping |
-| `9bd404e` | Skip dissolved entities in SPARQL template (FILTER NOT EXISTS P576) |
-| `e87c951` | Initial baseline (prior CHECKPOINT + step2_enrich.py + .gitignore) |
+| `f6798e1` | CBS Gebieden fetcher: fresh NL numbers + auto veiligheidsregio mapping |
+| `6df26d4` | DE Verbandsgemeinden: direct-value table (Wikidata unusable) |
+| `7d8bf9f` | DE Landkreise via district key P440 (44 -> 288) |
+| `2cc4378` | DE Gemeinden via AGS key P439, chunked per Bundesland (346 -> 11,418) |
+| `f5687a8` | step1_classify.py into repo + type-name harmonization |
+| `b036aba` | Timestamped file logging for all steps (logs/) |
+| `6e9febc` | Segment (category) column in step1b |
+| `56c63fe` | step1b_segment.py: Segment columns (Claude API) |
+| `1764a9a` | Waterschap direct values, sum-validated |
+| `9bd404e`..`017aa56` | earlier: dissolved filter, stadsdelen, BE provincies/politiezones, staleness column |
 
 ---
 
@@ -116,13 +118,13 @@ Measured 2026-05-11 unless noted. `dissolved filter` = the global
 
 | Name | Q-ID | Active items | With P1082 | Status |
 |---|---|---|---|---|
-| `nl_gemeenten` | Q2039348 | 1,316 (was 1,575) | most | OK but over-counts (NL has ~342 current). User wants historical kept (intentional, see notes below). |
+| `nl_gemeenten` | Q2039348 + CBS merge | 342 CBS (current, fresh) + ~800 Wikidata (historical names) | yes | OK. CBS rows win for current gemeenten (qid `CBS-86247NED` in bron); Wikidata rows keep historical names matchable (intentional). |
 | `nl_provincies` | Q134390 | 12 | 12 | OK. |
 | `be_gemeenten` | Q493522 | 565 (was 581) | full | OK, clean match. |
 | `be_provincies` | **Q83116** (was Q364356) | 10 | 10 | FIXED this session. |
-| `de_gemeinden` | Q262166 | 346 | most | UNDER-COUNTS. Germany has ~10,000 Gemeinden. Likely needs subclass walking (`wdt:P31/wdt:P279*`) or per-Bundesland Q-IDs. NOT YET FIXED. |
-| `de_landkreise` | Q106658 | 44 | most | UNDER-COUNTS. Germany has ~294 Landkreise. NOT YET FIXED. |
-| `de_verbandsgemeinden` | Q253019 | (fails) | n/a | STILL FAILING with truncated-JSON / 502 errors. NOT YET INVESTIGATED. |
+| `de_gemeinden` | AGS key **P439** (was Q262166), chunked per Bundesland | 11,418 | all | FIXED `2cc4378` (2026-06-11). Was 346: per-Bundesland subclasses made P31 useless. ~130k statements total, hence 16 chunks. |
+| `de_landkreise` | district key **P440** minus P439 (was Q106658) | 288 | all | FIXED `7d8bf9f` (2026-06-11). P439-exclusion keeps kreisfreie Staedte out (they live in de_gemeinden). Labels prefix-stripped via strip_name_prefix_re. |
+| `de_verbandsgemeinden` | REMOVED `6df26d4` | n/a | n/a | Root cause: Q253019 is 'Ortsteil' (70k items!), never the VG class. Correct Q23006 has 13/112 with P1082 and garbage memberships. Now a direct-value table (see below). |
 | `caribbean_countries` | (hardcoded VALUES) | 4 | 4 | OK. |
 
 ### Sources REMOVED from `REFERENCE_SOURCES` this session
@@ -135,6 +137,7 @@ tables instead:
 | `nl_waterschappen` | Wikidata has 0 P1082 for any of 23 active items (Q702081) | `NL_WATERSCHAP_INWONERS` direct-value table (POPULATED, see below) |
 | `nl_stadsdelen` | Wikidata has 0 P1082 for 8 Amsterdam boroughs (Q15079751) | `NL_STADSDEEL_INWONERS` direct-value table |
 | `be_politiezones` | Wikidata has 0 P1082 for 176 zones (Q2621126) | `BE_POLITIEZONE_GEMEENTEN` aggregation (173/176 from NL Wikipedia) |
+| `de_verbandsgemeinden` | Q253019 was 'Ortsteil' (wrong class); real class Q23006 has 13/112 with P1082, fragmentary memberships | `DE_VERBANDSGEMEINDE_INWONERS` direct-value table (15 CRM VGs, DE Wikipedia infoboxes, peildatum 2024) |
 
 ---
 
@@ -142,8 +145,9 @@ tables instead:
 
 | Table | Type | Status |
 |---|---|---|
-| `NL_VEILIGHEIDSREGIO_GEMEENTEN` | sum-of-gemeenten | partial (5 regions populated) - PRE-EXISTING |
+| `NL_VEILIGHEIDSREGIO_GEMEENTEN` | sum-of-gemeenten | FALLBACK ONLY since `f6798e1`: the complete 25-region mapping is auto-built from CBS at run time |
 | `NL_OMGEVINGSDIENST_GEMEENTEN` | sum-of-gemeenten | partial (5 diensten populated) - PRE-EXISTING |
+| `DE_VERBANDSGEMEINDE_INWONERS` | direct value | **POPULATED** (`6df26d4`) - 15 CRM VGs from DE Wikipedia infoboxes, peildatum 2024; 17/17 CRM records resolve incl. one typo via fuzzy |
 | `NL_WATERSCHAP_INWONERS` | direct value | **POPULATED** (`1764a9a`) - 21 waterschappen, websearched from own sites/Wikipedia 2026-06-11, sum-validated at 98% of NL population. Replaced the never-filled NL_WATERSCHAP_GEMEENTEN stub |
 | `NL_STADSDEEL_INWONERS` | direct value | **POPULATED** - 8 Amsterdam stadsdelen, both `X` and `Amsterdam-X` keys, peildatums 2020-2022 from NL Wikipedia infoboxes (`c3ad5e4`) |
 | `BE_POLITIEZONE_GEMEENTEN` | sum-of-gemeenten | **POPULATED** - 173/176 zones extracted from NL Wikipedia list (`3b307cf`) |
@@ -180,33 +184,37 @@ Investigation that led here (so nobody re-treads it):
 Refresh strategy: re-check the source URLs every 1-2 years; numbers
 drift ~1%/yr at most.
 
-### 1b. NEW OPPORTUNITY: CBS "Gebieden in Nederland" fetcher
+### 1b. CBS "Gebieden in Nederland" fetcher - RESOLVED (`f6798e1`, 2026-06-11)
 
-Discovered during the waterschap investigation: CBS table `86247NED`
-("Gebieden in Nederland 2026", OData, yearly editions) contains PER
-GEMEENTE: Veiligheidsregio, GGD-regio, Jeugdregio, Zorgkantoorregio,
-Arbeidsmarktregio etc. AND `Inwonertal_56` (population per gemeente).
-One small fetcher against this table would:
-- auto-generate `NL_VEILIGHEIDSREGIO_GEMEENTEN` (now 5/25 hand-made),
-- unlock the `ggd` v2 aggregation type,
-- provide fresher NL gemeente populations than Wikidata (solves both
-  the staleness and the historical-over-count concerns for NL).
-Endpoint pattern:
-`https://opendata.cbs.nl/ODataApi/odata/86247NED/...`
-Not yet built. High value, moderate effort.
+Built: `fetch_cbs_gebieden()` auto-discovers the newest yearly edition
+in the CBS catalog (no manual table-ID switch), resolves per-edition
+field names via DataProperties, merges 342 current-gemeente populations
+into nl_gemeenten (CBS wins, Wikidata keeps historical names) and
+auto-builds the complete 25-region veiligheidsregio mapping. CBS outage
+degrades gracefully to Wikidata + inline table. Alias "'s-Gravenhage"
+-> "Den Haag" included. The `ggd` v2 type could reuse the same table
+(GGD-regio column exists) - still open under item 5.
 
-### 2. DE Verbandsgemeinden (`Q253019`) failing entirely
+### 2. DE Verbandsgemeinden - RESOLVED (`6df26d4`, 2026-06-11)
 
-Truncated-JSON / 502 errors. NOT investigated this session.
-Suggested approach (from prior CHECKPOINT): test with `LIMIT 10` first
-to see what's actually being returned. Possible alternatives: `Q272946`
-or split by Bundesland.
+Root cause: Q253019 was 'Ortsteil' (70k items), never the VG class -
+hence the truncated responses. Correct class Q23006 is unusable (13/112
+with P1082; P150/P131 memberships fragmentary, partial sums would be
+confidently wrong). Now: `DE_VERBANDSGEMEINDE_INWONERS` direct-value
+table, 15 CRM VGs from DE Wikipedia infoboxes (Landesamt figures,
+peildatum 2024). 17/17 CRM records resolve. New VGs in future exports
+show "niet in tabel" in proces -> add one dict line.
 
-### 3. DE Gemeinde under-count
+### 3. DE Gemeinde under-count - RESOLVED (`2cc4378`, 2026-06-11)
 
-`Q262166` returns 346 items; Germany has ~10,000 Gemeinden. Likely
-needs subclass walking (`wdt:P31/wdt:P279*`) or per-Bundesland Q-IDs.
-The class hierarchy is complex (different subtypes per Bundesland).
+Q262166 found 346 because each Bundesland has its own subclasses.
+Now fetched via the AGS municipality key (P439), chunked per Bundesland
+(first two AGS digits; ~130k statements total would truncate in one
+response): 11,418 municipalities with population. de_landkreise
+similarly fixed via P440-minus-P439 (`7d8bf9f`): 288 districts,
+label prefixes stripped. Known edge: duplicate municipality names
+across states - fuzzy match takes the first exact hit; Bundesland-aware
+matching is possible future polish.
 
 ### 4. NL gemeenten over-count - user wants historical KEPT (design decision)
 
@@ -220,6 +228,13 @@ Current code already does this for ~99% of cases: most historical NL
 gemeenten don't have `P576` set in Wikidata, so the dissolved filter
 doesn't exclude them. The `data_leeftijd_jaren` column (added in
 `017aa56`) surfaces stale matches per row.
+
+KNOWN EDGE (found 2026-06-11 while testing CBS): gemeenten that ARE
+P576-tagged (e.g. Bussum, dissolved 2016) get excluded and can then
+fuzzy-FALSE-POSITIVE onto a similar current name ("Bussum" -> Brunssum,
+score >=85). Candidate fixes: higher threshold for nl_gemeenten, or
+keep P576 rows with an is_historisch flag. Low priority - review output
+rows where proces shows a fuzzy (non-100) score.
 
 NOT YET DONE but discussed: per-source dissolved filter (off for
 `nl_gemeenten`, on for `be_gemeenten`) so that even `P576`-tagged old
@@ -388,16 +403,22 @@ strikethrough are historical (skip them).
 
 ## What to do next (in priority order)
 
-1. **Review full segmentation run output** with the user (started
-   2026-06-10/11; check the segment distribution and the weak-rate).
-2. **CBS Gebieden in Nederland fetcher** (item #1b): auto-fill
-   veiligheidsregio + GGD mappings, fresher NL gemeente populations.
-3. **Investigate `de_verbandsgemeinden` (Q253019) failure** (item #2).
-   Probably the simplest remaining "broken Q-ID" type problem to close.
-4. **DE Gemeinde under-count** (item #3). More involved - the German
-   class hierarchy requires research.
-5. **v2 aggregation tables** (item #5) and per-source dissolved filter
-   (item #4). User-driven prioritization.
+All "broken source" items are now RESOLVED (waterschap, stadsdelen,
+BE provincies/politiezones, DE gemeinden/landkreise/verbandsgemeinden,
+CBS fetcher). Remaining:
+
+1. **Run the full step 2 chain** on the fresh export:
+   `step2_enrich.py --input step1b_segmented.xlsx --output
+   final_enriched.xlsx --user-agent "..."` (test-mode first), then
+   review with the user: proces misses, data_leeftijd outliers,
+   previous_population diffs. See doc/MANUAL.md section 5.
+2. **v2 aggregation tables** (~70 records: samenwerking_nl,
+   belastingsamenwerking, omgevingsdienst 5/30, amt,
+   verwaltungsgemeinschaft; `ggd` could reuse the CBS table's GGD-regio
+   column). User-driven prioritization.
+3. **Optional polish**: P576 fuzzy false-positive edge (item #4),
+   Bundesland-aware DE matching, Dynamics 365 import section in the
+   manual.
 
 ---
 

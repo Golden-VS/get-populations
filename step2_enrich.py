@@ -135,8 +135,8 @@ def _sparql_population_template(qid_filter):
 # 'qid' = Wikidata-klasse-Q-ID, 'description' = mens-leesbaar.
 #
 # NB: nl_waterschappen niet in deze lijst. Wikidata heeft P1082 voor 0 van de
-# 23 actieve waterschappen (gemeten 2026-05-11, qid Q702081). Aanpak: behandel
-# 'waterschap' als aggregatie-type via NL_WATERSCHAP_GEMEENTEN (zie hieronder).
+# 23 actieve waterschappen (gemeten 2026-05-11, qid Q702081). Aanpak: directe
+# waarden via NL_WATERSCHAP_INWONERS (zie hieronder).
 #
 # NB: nl_stadsdelen ook niet in deze lijst. De juiste Wikidata-klasse is
 # Q15079751 ("borough of Amsterdam"), maar 0 van de 8 huidige stadsdelen heeft
@@ -210,42 +210,83 @@ NL_VEILIGHEIDSREGIO_GEMEENTEN = {
 }
 
 # NL waterschappen: 21 actieve water boards (per 2026). Wikidata heeft GEEN
-# inwonertal-data (P1082) voor waterschappen, dus we sommen NL gemeenten in
-# het beheergebied. Let op: waterschap-grenzen volgen NIET netjes gemeente-
-# grenzen (een gemeente kan in meerdere waterschappen vallen). De som is
-# daarom een benadering. Onderzoek-bron per ingang invullen (waterschap-
-# website / Wikipedia / Unie van Waterschappen).
+# inwonertal-data (P1082), CBS heeft geen waterschap-indeling (waterschaps-
+# grenzen volgen geen gemeentegrenzen), en sum-of-gemeenten bleek daardoor
+# niet betrouwbaar te bouwen. Daarom directe waarden, per waterschap
+# opgezocht (websearch 2026-06-11) op de eigen website of Wikipedia.
 #
-# Sleutels MOETEN matchen met canonical_name uit step1 (na het strippen van
-# het "Waterschap "/"Hoogheemraadschap "-prefix). Waarden zijn NL gemeente-
-# namen zoals ze in nl_gemeenten staan (na normalisatie matched fuzzy).
+# Validatie: de 21 waterschappen bedekken samen heel Nederland; de som van
+# deze waarden is 17,73 mln vs ~18,1 mln NL-inwoners (98%, verschil komt
+# door afgeronde "ruim X"-formuleringen en gemengde peiljaren). Outliers
+# van aggregator-site overheidinnederland.nl (2,8-3,5 mln per waterschap)
+# zijn bewust NIET gebruikt - die data is aantoonbaar fout.
 #
-# Status: STUB. Lijsten leeg tot we ze met betrouwbare bron invullen.
-NL_WATERSCHAP_GEMEENTEN = {
-    # Hoogheemraadschappen (4 stuks)
-    'Hollands Noorderkwartier': [],         # Q4469762
-    'Rijnland':                  [],         # Q2619632
-    'Delfland':                  [],         # Q3046110
-    'Schieland en de Krimpenerwaard': [],   # Q2304570
-    'De Stichtse Rijnlanden':    [],         # Q2046915
-    'Amstel, Gooi en Vecht':     [],         # Q2192659
-
-    # Waterschappen (15 stuks)
-    'Aa en Maas':                [],         # Q2553577
-    'Brabantse Delta':           [],         # Q3211339
-    'De Dommel':                 [],         # Q2904296
-    'Drents Overijsselse Delta': [],         # Q21921798
-    'Hollandse Delta':           [],         # Q3079910
-    'Hunze en Aa\'s':            [],         # Q14941974
-    'Limburg':                   [],         # Q27895262
-    'Noorderzijlvest':           [],         # Q2096098
-    'Rijn en IJssel':            [],         # Q2228586
-    'Rivierenland':              [],         # Q2273075
-    'Scheldestromen':            [],         # Q2422832
-    'Vallei en Veluwe':          [],         # Q2474783
-    'Vechtstromen':              [],         # Q15883321
-    'Wetterskip Fryslan':        [],         # Q1970347   (Fries: "Fryslan")
-    'Zuiderzeeland':             [],         # Q3086208
+# peildatum: jaartal indien de bron het noemt; '2026' = actuele claim op de
+# eigen website bij raadpleging; '' = bron zonder datering (Wikipedia).
+#
+# Beide naamsvarianten als sleutel: korte naam (na strippen van het
+# "Waterschap "/"Hoogheemraadschap "-prefix in step1) en volledige naam.
+NL_WATERSCHAP_INWONERS = {
+    'Rijnland':                       {'population': 1300000, 'peildatum': '2019',
+                                       'bron_url': 'https://nl.wikipedia.org/wiki/Hoogheemraadschap_van_Rijnland'},
+    'Hoogheemraadschap van Rijnland': {'population': 1300000, 'peildatum': '2019',
+                                       'bron_url': 'https://nl.wikipedia.org/wiki/Hoogheemraadschap_van_Rijnland'},
+    'Delfland':                       {'population': 1250000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.hhdelfland.nl/'},
+    'Hoogheemraadschap van Delfland': {'population': 1250000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.hhdelfland.nl/'},
+    'Schieland en de Krimpenerwaard': {'population': 637718, 'peildatum': '2026',
+                                       'bron_url': 'https://www.schielandendekrimpenerwaard.nl/wat-doen-we/ons-gebied-beheren/'},
+    'Hoogheemraadschap van Schieland en de Krimpenerwaard':
+                                      {'population': 637718, 'peildatum': '2026',
+                                       'bron_url': 'https://www.schielandendekrimpenerwaard.nl/wat-doen-we/ons-gebied-beheren/'},
+    'Hollands Noorderkwartier':       {'population': 1160000, 'peildatum': '',
+                                       'bron_url': 'https://nl.wikipedia.org/wiki/Hoogheemraadschap_Hollands_Noorderkwartier'},
+    'Hoogheemraadschap Hollands Noorderkwartier':
+                                      {'population': 1160000, 'peildatum': '',
+                                       'bron_url': 'https://nl.wikipedia.org/wiki/Hoogheemraadschap_Hollands_Noorderkwartier'},
+    'De Stichtse Rijnlanden':         {'population': 850000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.hdsr.nl/werk/werkgebied/'},
+    'Hoogheemraadschap De Stichtse Rijnlanden':
+                                      {'population': 850000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.hdsr.nl/werk/werkgebied/'},
+    'Amstel, Gooi en Vecht':          {'population': 1400000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.agv.nl/over-ons/werkgebied-waterschap-agv/'},
+    'Waterschap Amstel, Gooi en Vecht':
+                                      {'population': 1400000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.agv.nl/over-ons/werkgebied-waterschap-agv/'},
+    'Hollandse Delta':                {'population': 1000000, 'peildatum': '',
+                                       'bron_url': 'https://nl.wikipedia.org/wiki/Waterschap_Hollandse_Delta'},
+    'Rivierenland':                   {'population': 950000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.waterschaprivierenland.nl/over-het-waterschap'},
+    'Aa en Maas':                     {'population': 803800, 'peildatum': '2026',
+                                       'bron_url': 'https://www.aaenmaas.nl/overons/aa-maas-cijfers/'},
+    'De Dommel':                      {'population': 930000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.dommel.nl/werkgebied'},
+    'Brabantse Delta':                {'population': 800000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.brabantsedelta.nl/ontdek-ons-werk'},
+    'Limburg':                        {'population': 1100000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.waterschaplimburg.nl/overons/'},
+    'Vallei en Veluwe':               {'population': 1200000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.vallei-veluwe.nl/over-ons/'},
+    'Rijn en IJssel':                 {'population': 650000, 'peildatum': '2024',
+                                       'bron_url': 'https://www.wrij.nl/ons-waterschap-in-cijfers'},
+    'Drents Overijsselse Delta':      {'population': 639000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.wdodelta.nl/ons-werkgebied'},
+    'Vechtstromen':                   {'population': 800000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.vechtstromen.nl/over-ons/'},
+    'Wetterskip Fryslan':             {'population': 645000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.wetterskipfryslan.nl/over-ons/wie-zijn-wij/Feiten-en-cijfers'},
+    'Fryslan':                        {'population': 645000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.wetterskipfryslan.nl/over-ons/wie-zijn-wij/Feiten-en-cijfers'},
+    'Noorderzijlvest':                {'population': 417000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.noorderzijlvest.nl/ons-werkgebied'},
+    "Hunze en Aa's":                  {'population': 420000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.hunzeenaas.nl/'},
+    'Scheldestromen':                 {'population': 381500, 'peildatum': '2026',
+                                       'bron_url': 'https://scheldestromen.nl/over-ons/kengetallen'},
+    'Zuiderzeeland':                  {'population': 400000, 'peildatum': '2026',
+                                       'bron_url': 'https://www.zuiderzeeland.nl/organisatie/'},
 }
 
 
@@ -803,7 +844,7 @@ UNSUPPORTED_AGGREGATION = {
 
 # Mapping detected_type -> naam van de referentielijst voor 1-op-1 match.
 # Niet in deze tabel:
-#   'waterschap'   -> aparte aggregatie via NL_WATERSCHAP_GEMEENTEN
+#   'waterschap'   -> directe lookup in NL_WATERSCHAP_INWONERS
 #   'stadsdeel'    -> directe lookup in NL_STADSDEEL_INWONERS
 #   'deelgemeente' -> directe lookup in NL_STADSDEEL_INWONERS (Amsterdam
 #                     stadsdelen heetten formeel "deelgemeente" tot 2010;
@@ -944,25 +985,19 @@ def enrich_record(row, ref_data, gemeenten_nl):
         })
         return result
 
-    # Aggregatie: waterschap (Wikidata heeft geen P1082 voor waterschappen)
+    # Directe waarde-lookup: waterschap (Wikidata heeft geen P1082, CBS geen
+    # waterschap-indeling; waarden komen uit NL_WATERSCHAP_INWONERS)
     if etype == 'waterschap':
-        members, used_key = _resolve_mapping(canon, NL_WATERSCHAP_GEMEENTEN)
-        if used_key is None:
-            result['proces'] = f'waterschap "{canon}" niet in NL_WATERSCHAP_GEMEENTEN-tabel'
+        matched, used_key = _resolve_mapping(canon, NL_WATERSCHAP_INWONERS)
+        if matched is None:
+            result['proces'] = f'waterschap "{canon}" niet in NL_WATERSCHAP_INWONERS-tabel'
             return result
-        if not members:
-            result['proces'] = f'waterschap "{used_key}": ledenlijst nog niet ingevuld in NL_WATERSCHAP_GEMEENTEN'
-            return result
-        total, peildatum, n, _missing, note = aggregate_sum(members, gemeenten_nl)
-        if total:
-            result.update({
-                'cx_population_new':  total,
-                'peildatum_inwoners': peildatum,
-                'bron':               f'aggregatie NL gemeenten (Wikidata) voor waterschap {used_key}',
-                'proces':             note,
-            })
-        else:
-            result['proces'] = note
+        result.update({
+            'cx_population_new':  matched['population'],
+            'peildatum_inwoners': matched['peildatum'] or None,
+            'bron':               f"NL_WATERSCHAP_INWONERS ({matched['bron_url']})",
+            'proces':             f'directe waarde uit waterschap-tabel voor "{used_key}"',
+        })
         return result
 
     # Aggregatie: BE politiezone (Wikidata heeft geen P1082 voor politiezones)

@@ -836,10 +836,12 @@ NO_POPULATION_TYPES = {
     'intercommunale', 'caw', 'zweckverband', 'fod_be',
 }
 
-# Aggregatie-types die we nog NIET ondersteunen in v1
+# Aggregatie-types die we nog NIET ondersteunen in v1.
+# 'samenwerking' en 'samenwerking_nl' zijn hetzelfde type uit twee
+# verschillende vintages van step1_classify.py - beide accepteren.
 UNSUPPORTED_AGGREGATION = {
-    'samenwerking_nl', 'belastingsamenwerking', 'hulpverleningszone',
-    'ggd', 'stadsregio', 'amt', 'verwaltungsgemeinschaft',
+    'samenwerking', 'samenwerking_nl', 'belastingsamenwerking',
+    'hulpverleningszone', 'ggd', 'stadsregio', 'amt', 'verwaltungsgemeinschaft',
 }
 
 # Mapping detected_type -> naam van de referentielijst voor 1-op-1 match.

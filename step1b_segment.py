@@ -148,6 +148,7 @@ TYPE_TO_SEGMENT = {
     'veiligheidsregio':        ('Public safety & emergency',   'Safety region'),
     'politiezone':             ('Public safety & emergency',   'Police zone'),
     'samenwerking':            ('Inter-municipal cooperation', 'Municipal partnership'),
+    'samenwerking_nl':         ('Inter-municipal cooperation', 'Municipal partnership'),
     'belastingsamenwerking':   ('Inter-municipal cooperation', 'Tax partnership'),
     'omgevingsdienst':         ('Inter-municipal cooperation', 'Environmental agency'),
     'intercommunale':          ('Inter-municipal cooperation', 'Intermunicipal company'),
@@ -157,6 +158,14 @@ TYPE_TO_SEGMENT = {
     'verwaltungsgemeinschaft': ('Inter-municipal cooperation', 'Municipal federation'),
     'stadtwerke':              ('Energy & utilities',          'Municipal utility (Stadtwerke)'),
     'caw':                     ('Healthcare & social care',    'Welfare organization'),
+    # Types die step1_classify.py KAN produceren maar die niet in de huidige
+    # dataset voorkwamen. Toegevoegd zodat een toekomstige export ze direct
+    # een segment geeft i.p.v. "niet in TYPE_TO_SEGMENT".
+    'ggd':                     ('Healthcare & social care',    'Public health service (GGD)'),
+    'stadsregio':              ('Inter-municipal cooperation', 'Urban region (stadsregio)'),
+    'hulpverleningszone':      ('Public safety & emergency',   'Emergency services zone'),
+    'fod_be':                  ('National government',         'Federal public service (FOD)'),
+    'land':                    ('National government',         'Country government (Caribbean)'),
 }
 
 

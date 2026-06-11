@@ -1,7 +1,7 @@
 # CRM Population Enrichment - Project Checkpoint
 
 > Handoff document for continuing this project in a fresh Claude Code session.
-> Last updated: 2026-06-05
+> Last updated: 2026-06-11
 
 ---
 
@@ -47,6 +47,31 @@ the previous CHECKPOINT: 2,253 records will get a population lookup;
 
 The classifier output is the input to step 2.
 
+### Step 1b: Segment (`step1b_segment.py`) - NEW since 2026-06-10
+**Status: FINISHED; full production run started by user on 2026-06-10/11.**
+
+Adds "Segment" and "Segment (detailed)" columns to the step1 output.
+Two layers:
+1. Deterministic: `TYPE_TO_SEGMENT` maps all 26 government/utility
+   detected_types to a (segment, detailed) pair. Free.
+2. Claude API (Anthropic SDK, default `claude-opus-4-7`, adaptive thinking,
+   structured outputs via `messages.parse` + Pydantic enum, prompt-cached
+   system prompt): classifies `onbekend` / `commercieel_of_overig` /
+   `gemeente_unclear` records (~3.7k) in batches of 25 using name, country,
+   city, address and the weak businesstype hint. A step1 "voorlopige
+   typering" hint is passed per record; known-commercial records can never
+   come back "Unknown" (fall back to segment `Commercial (other)`).
+3. Optional `--web-search` second pass: weak classifications (Unknown /
+   Commercial (other) / low confidence, including weak cached results) are
+   re-done in batches of 5 with the server-side `web_search_20260209` tool.
+
+Results cached in `segment_cache.csv` (gitignored - contains account names)
+keyed on accountid, invalidated on name change; cache saved per batch so
+interrupted runs resume. Override table supported. Taxonomy: 23 segments
+(government by administrative level + NACE-aligned commercial).
+Requires `pip install anthropic` and `ANTHROPIC_API_KEY`. User purchased
+$50 API credits (June 2026). Operator instructions: `doc/MANUAL.md`.
+
 ### Step 2: Enrich (`step2_enrich.py`)
 **Status: HEAVILY REVISED in this session.** Pipeline robust to per-source
 failures. Several previously-broken sources now produce results.
@@ -68,6 +93,12 @@ Run `git log --oneline` to see the latest. As of this checkpoint:
 
 | Commit | Topic |
 |---|---|
+| `1764a9a` | Waterschap: direct values via NL_WATERSCHAP_INWONERS, sum-validated (17.73M vs ~18.1M NL) |
+| `2117027` | doc/MANUAL.md operator runbook |
+| `5425b9d` | doc/PROJECT_OVERVIEW.md non-technical summary |
+| `b2e64bd` | step1b: Commercial (other) rule + --web-search second pass |
+| `56c63fe` | step1b_segment.py: Segment + Segment (detailed) columns |
+| `6ed0893` | CHECKPOINT refresh (2026-06-05) |
 | `017aa56` | Add `data_leeftijd_jaren` column for staleness visibility |
 | `3b307cf` | BE politiezones: aggregation via 173/176 zones from NL Wikipedia |
 | `3f69e18` | BE provincies Q-ID fix: `Q364356` -> `Q83116` (10 items, full P1082) |
@@ -101,7 +132,7 @@ tables instead:
 
 | Old source | Why removed | Replacement |
 |---|---|---|
-| `nl_waterschappen` | Wikidata has 0 P1082 for any of 23 active items (Q702081) | `NL_WATERSCHAP_GEMEENTEN` aggregation (STUB, see below) |
+| `nl_waterschappen` | Wikidata has 0 P1082 for any of 23 active items (Q702081) | `NL_WATERSCHAP_INWONERS` direct-value table (POPULATED, see below) |
 | `nl_stadsdelen` | Wikidata has 0 P1082 for 8 Amsterdam boroughs (Q15079751) | `NL_STADSDEEL_INWONERS` direct-value table |
 | `be_politiezones` | Wikidata has 0 P1082 for 176 zones (Q2621126) | `BE_POLITIEZONE_GEMEENTEN` aggregation (173/176 from NL Wikipedia) |
 
@@ -113,12 +144,13 @@ tables instead:
 |---|---|---|
 | `NL_VEILIGHEIDSREGIO_GEMEENTEN` | sum-of-gemeenten | partial (5 regions populated) - PRE-EXISTING |
 | `NL_OMGEVINGSDIENST_GEMEENTEN` | sum-of-gemeenten | partial (5 diensten populated) - PRE-EXISTING |
-| `NL_WATERSCHAP_GEMEENTEN` | sum-of-gemeenten | **STUB** - 21 keys, all empty lists (`5b31121`) |
+| `NL_WATERSCHAP_INWONERS` | direct value | **POPULATED** (`1764a9a`) - 21 waterschappen, websearched from own sites/Wikipedia 2026-06-11, sum-validated at 98% of NL population. Replaced the never-filled NL_WATERSCHAP_GEMEENTEN stub |
 | `NL_STADSDEEL_INWONERS` | direct value | **POPULATED** - 8 Amsterdam stadsdelen, both `X` and `Amsterdam-X` keys, peildatums 2020-2022 from NL Wikipedia infoboxes (`c3ad5e4`) |
 | `BE_POLITIEZONE_GEMEENTEN` | sum-of-gemeenten | **POPULATED** - 173/176 zones extracted from NL Wikipedia list (`3b307cf`) |
 
 `enrich_record` dispatches by `detected_type`:
-- `veiligheidsregio`, `omgevingsdienst`, `waterschap` -> aggregate NL gemeenten
+- `veiligheidsregio`, `omgevingsdienst` -> aggregate NL gemeenten
+- `waterschap` -> direct lookup in `NL_WATERSCHAP_INWONERS`
 - `stadsdeel`, `deelgemeente` -> direct lookup in `NL_STADSDEEL_INWONERS`
 - `politiezone` -> aggregate BE gemeenten via `BE_POLITIEZONE_GEMEENTEN`
 - Everything else -> direct fuzzy match against the appropriate Wikidata
@@ -128,32 +160,40 @@ tables instead:
 
 ## Open work items (priority order)
 
-### 1. Waterschap mapping data source (BLOCKING DECISION)
+### 1. Waterschap populations - RESOLVED (`1764a9a`, 2026-06-11)
 
-`NL_WATERSCHAP_GEMEENTEN` ships as a stub. The user has 20-30 waterschap
-records in the CRM and they are "important large accounts" -> accuracy
-matters. The user does NOT want to fill the table manually.
+Final approach: direct values in `NL_WATERSCHAP_INWONERS`, websearched
+per waterschap from own websites/Wikipedia, validated by the sum check
+(21 waterschappen tile the country: 17.73M vs ~18.1M NL inhabitants).
 
-Wikipedia/Wikidata investigation (done in session) showed:
-- No overview page with member-gemeenten lists.
-- Individual articles describe geography in prose, not structured lists.
-  Only Rijnland mentions a population number ("1,3 miljoen", 2019).
-- Infoboxes only carry `oppervlakte` (area), not gemeenten.
-- Wikidata: 0 of 342 NL gemeenten link to any active waterschap.
-- Wikipedia categories: contain pump stations and historic structures,
-  not member gemeenten.
+Investigation that led here (so nobody re-treads it):
+- Wikidata: 0 P1082; 0 gemeente->waterschap links.
+- Wikipedia: prose only, no structured member lists, infoboxes only
+  have area.
+- CBS: NO waterschap classification anywhere (boundaries don't follow
+  gemeente borders) - all 8 CBS waterschap tables are financial.
+- WAVES (waves.databank.nl, Unie van Waterschappen): data exists behind
+  a JS dashboard; no fetchable API found; main site 403s bots.
+- Aggregator overheidinnederland.nl publishes provably wrong inhabitant
+  numbers (2.8-3.5M per waterschap) - never use it.
 
-**Proposed: CBS Wijken en buurten integration.** CBS publishes the
-official gemeente <-> waterschap correspondence as part of their open
-data. New fetcher needed (OData API). ~Half day of work. Authoritative
-and refreshable. Bonus: same fetcher unblocks the deferred "CBS upgrade
-for fresher NL gemeente data" item.
+Refresh strategy: re-check the source URLs every 1-2 years; numbers
+drift ~1%/yr at most.
 
-**Alternative: PDOK geometric intersection** (gemeente polygons +
-waterschap polygons). Adds `geopandas` / `shapely` dependency.
+### 1b. NEW OPPORTUNITY: CBS "Gebieden in Nederland" fetcher
 
-**User has NOT yet picked an option.** Next session should ask which
-path they want to take, then execute it.
+Discovered during the waterschap investigation: CBS table `86247NED`
+("Gebieden in Nederland 2026", OData, yearly editions) contains PER
+GEMEENTE: Veiligheidsregio, GGD-regio, Jeugdregio, Zorgkantoorregio,
+Arbeidsmarktregio etc. AND `Inwonertal_56` (population per gemeente).
+One small fetcher against this table would:
+- auto-generate `NL_VEILIGHEIDSREGIO_GEMEENTEN` (now 5/25 hand-made),
+- unlock the `ggd` v2 aggregation type,
+- provide fresher NL gemeente populations than Wikidata (solves both
+  the staleness and the historical-over-count concerns for NL).
+Endpoint pattern:
+`https://opendata.cbs.nl/ODataApi/odata/86247NED/...`
+Not yet built. High value, moderate effort.
 
 ### 2. DE Verbandsgemeinden (`Q253019`) failing entirely
 
@@ -168,9 +208,7 @@ or split by Bundesland.
 needs subclass walking (`wdt:P31/wdt:P279*`) or per-Bundesland Q-IDs.
 The class hierarchy is complex (different subtypes per Bundesland).
 
-### 4. Fill `NL_WATERSCHAP_GEMEENTEN` once data source is chosen (depends on #1).
-
-### 5. NL gemeenten over-count - user wants historical KEPT (design decision)
+### 4. NL gemeenten over-count - user wants historical KEPT (design decision)
 
 CHECKPOINT-prior framing was "filter to current only". User reconsidered
 during this session: if the CRM has an old gemeente name, look up that
@@ -189,7 +227,7 @@ NL gemeenten survive and can be matched. Would require capturing the
 dissolution date in the dataframe and adding an `is_historisch`
 column. Optional polish; revisit if user wants more visibility.
 
-### 6. v2 aggregation tables (deferred)
+### 5. v2 aggregation tables (deferred)
 
 Still unsupported (returns "vereist mapping-tabel (volgt in v2)"):
 - `samenwerking_nl` (~23 records: GR/GRSK/ISD/RSD/RUD/Werkplein/etc.)
@@ -259,14 +297,20 @@ on for `be_gemeenten`).
 get-populations/
 |- .gitignore
 |- CHECKPOINT.md                  <- this file
-`- step2_enrich.py                <- main script
+|- step1b_segment.py              <- segmentation (Segment columns, Claude API)
+|- step2_enrich.py                <- population enrichment
+`- doc/
+   |- PROJECT_OVERVIEW.md         <- non-technical summary
+   `- MANUAL.md                   <- operator runbook (living document)
 
-NOT in this repo (excluded by .gitignore):
-- step1_classified.xlsx           (real CRM data; on user's Windows machine)
-- step2_enriched.xlsx             (output)
+NOT in this repo (excluded by .gitignore: *.xlsx, segment_cache.csv):
+- step1_classified.xlsx           (real CRM data; also runs on Linux now)
+- step1b_segmented.xlsx           (segmentation output)
+- step2_enriched.xlsx             (enrichment output)
+- segment_cache.csv               (classification cache, contains account names)
 - reference/*.csv                 (Wikidata cache; rebuilt on first run)
 - .claude/                        (local Claude Code settings)
-- venv/                           (Python virtualenv)
+- venv/                           (Python virtualenv, exists on Linux server)
 ```
 
 `step1_classify.py` and the Windows setup README (`step2_README.md`) live
@@ -282,12 +326,11 @@ pandas
 openpyxl
 requests
 rapidfuzz
+anthropic     (step1b only; needs ANTHROPIC_API_KEY)
 ```
 
-No exotic packages. Python 3.10+. If we go with the CBS / PDOK path for
-waterschap (open item #1), one of these will be added:
-- CBS path: no new packages (uses `requests` for OData).
-- PDOK path: `geopandas` + `shapely`.
+No exotic packages. Python 3.10+. A future CBS fetcher (open item #1b)
+needs no new packages (plain OData via `requests`).
 
 ---
 
@@ -345,16 +388,16 @@ strikethrough are historical (skip them).
 
 ## What to do next (in priority order)
 
-1. **Resolve open item #1**: ask the user to pick CBS vs PDOK vs
-   accept-the-stub for `NL_WATERSCHAP_GEMEENTEN`. Then execute that
-   choice.
-2. **Investigate `de_verbandsgemeinden` (Q253019) failure** (item #2).
+1. **Review full segmentation run output** with the user (started
+   2026-06-10/11; check the segment distribution and the weak-rate).
+2. **CBS Gebieden in Nederland fetcher** (item #1b): auto-fill
+   veiligheidsregio + GGD mappings, fresher NL gemeente populations.
+3. **Investigate `de_verbandsgemeinden` (Q253019) failure** (item #2).
    Probably the simplest remaining "broken Q-ID" type problem to close.
-3. **DE Gemeinde under-count** (item #3). More involved - the German
+4. **DE Gemeinde under-count** (item #3). More involved - the German
    class hierarchy requires research.
-4. **Per-source dissolved filter for `nl_gemeenten`** (item #5).
-   Optional polish; keep deferred unless user asks.
-5. **v2 aggregation tables** (item #6). User-driven prioritization.
+5. **v2 aggregation tables** (item #5) and per-source dissolved filter
+   (item #4). User-driven prioritization.
 
 ---
 

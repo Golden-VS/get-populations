@@ -123,7 +123,23 @@ source venv/bin/activate
 
 ---
 
-## 1. Test run (100 accounts)
+## 1. Classification (step 1)
+
+```bash
+python step1_classify.py --input full_input.csv --output step1_classified.xlsx
+```
+
+- Free and fast (a few seconds for ~6,000 records); no API needed.
+- Detects per account the entity type (gemeente, waterschap, politiezone,
+  commercial, ...) and the country, based on the account name.
+- Check the summary in the terminal (also in the `logs/` file):
+  - the distribution per `detected_type` should look plausible (hundreds
+    of municipalities, no unexpectedly empty types);
+  - the *"'Onbekend' maar wel een cx_businesstype"* list and the
+    *conflicts* table show records worth a quick manual glance.
+- Output `step1_classified.xlsx` is the input for step 1b.
+
+## 2. Segmentation test run (step 1b, 100 accounts)
 
 Always do this first after any change to the script or the input file.
 
@@ -140,7 +156,7 @@ python step1b_segment.py \
 - Pay extra attention to rows with confidence `low` and segment
   `Commercial (other)` or `Unknown`.
 
-## 2. Full run (all ~6,000 accounts)
+## 3. Segmentation full run (step 1b, all ~6,000 accounts)
 
 ```bash
 python step1b_segment.py \
@@ -158,7 +174,7 @@ python step1b_segment.py \
 - At the end the log prints a count per segment. Sanity-check that
   distribution (e.g. roughly 1,500 municipalities, no giant "Unknown" bucket).
 
-## 3. Corrections
+## 4. Corrections
 
 If a segment is wrong, do not edit the output Excel by hand (it would be
 overwritten on the next run). Instead, add a row to a corrections file,
@@ -179,7 +195,7 @@ python step1b_segment.py \
 
 Overrides always win over the automatic classification and cost nothing.
 
-## 3b. Population enrichment (step 2)
+## 5. Population enrichment (step 2)
 
 After segmentation, run step 2 on **step1b's output** (not on
 step1_classified.xlsx, or the Segment columns will be missing from the
@@ -200,7 +216,7 @@ python step2_enrich.py \
 - `final_enriched.xlsx` is the complete file: original columns + type
   detection + segments + population.
 
-## 4. Next year's run (yearly refresh)
+## 6. Next year's run (yearly refresh)
 
 1. Make a fresh DWH export following **step 0** at the top of this manual
    and place `full_input.csv` in the project folder.
@@ -218,7 +234,7 @@ classifications. If you ever want to force a complete re-classification
 (for example after a major change to the segment list), run once with
 `--refresh-segments` and expect full-run costs again.
 
-## Useful options
+## Useful options (step 1b)
 
 | Option | What it does |
 |---|---|

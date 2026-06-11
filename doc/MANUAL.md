@@ -32,6 +32,11 @@ Step 1 is free and instant. Step 1b uses the Claude API (costs money, uses
 the cache). Step 2 uses Wikidata (free; the first run downloads reference
 data, which takes 5-10 minutes, after that it is cached in `reference/`).
 
+Every run of every step also writes a timestamped log file to `logs/`
+(e.g. `logs/step1b_segment_2026-06-11_143052.log`), so a failed or
+unattended run can be diagnosed afterwards. The `logs/` folder stays out
+of git.
+
 ---
 
 ## 0. One-time setup (already done on the Linux server)

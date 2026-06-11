@@ -64,7 +64,7 @@ import argparse
 import logging
 import os
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import List, Literal
 
@@ -91,6 +91,20 @@ logging.basicConfig(
     datefmt='%H:%M:%S',
 )
 log = logging.getLogger('segment')
+
+LOG_DIR = Path('logs')
+
+
+def setup_file_logging(script_name):
+    """Schrijft alle log-output ook naar logs/<script>_<timestamp>.log."""
+    LOG_DIR.mkdir(exist_ok=True)
+    path = LOG_DIR / f"{script_name}_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.log"
+    fh = logging.FileHandler(path, encoding='utf-8')
+    fh.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+    logging.getLogger().addHandler(fh)
+    log.info(f'Logbestand: {path}')
+    return path
 
 
 # ============================================================================
@@ -448,6 +462,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    setup_file_logging('step1b_segment')
 
     log.info(f'Input: {args.input}')
     df = pd.read_excel(args.input)

@@ -96,6 +96,20 @@ logging.basicConfig(
 )
 log = logging.getLogger('enrich')
 
+LOG_DIR = Path('logs')
+
+
+def setup_file_logging(script_name):
+    """Schrijft alle log-output ook naar logs/<script>_<timestamp>.log."""
+    LOG_DIR.mkdir(exist_ok=True)
+    path = LOG_DIR / f"{script_name}_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.log"
+    fh = logging.FileHandler(path, encoding='utf-8')
+    fh.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+    logging.getLogger().addHandler(fh)
+    log.info(f'Logbestand: {path}')
+    return path
+
 
 # ============================================================================
 # WIKIDATA SPARQL QUERIES
@@ -1248,6 +1262,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    setup_file_logging('step2_enrich')
 
     if args.user_agent == DEFAULT_USER_AGENT and not args.offline:
         log.warning(

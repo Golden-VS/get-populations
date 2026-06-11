@@ -19,6 +19,9 @@ reference/
 *.xlsx
 segment_cache.csv
 
+# Run logs (may contain account names)
+logs/
+
 # Local Claude Code settings
 .claude/
 

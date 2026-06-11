@@ -23,9 +23,33 @@ Output: oorspronkelijke kolommen + 4 nieuwe:
 """
 
 import argparse
+import logging
 import re
+from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%H:%M:%S',
+)
+log = logging.getLogger('classify')
+
+LOG_DIR = Path('logs')
+
+
+def setup_file_logging(script_name):
+    """Schrijft alle log-output ook naar logs/<script>_<timestamp>.log."""
+    LOG_DIR.mkdir(exist_ok=True)
+    path = LOG_DIR / f"{script_name}_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.log"
+    fh = logging.FileHandler(path, encoding='utf-8')
+    fh.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+    logging.getLogger().addHandler(fh)
+    log.info(f'Logbestand: {path}')
+    return path
 
 # ============================================================================
 # LAND-DETECTIE
@@ -325,29 +349,29 @@ def classify(row):
 
 def main(input_path='full_input.xlsx', output_path='step1_classified.xlsx'):
     df = pd.read_excel(input_path, sheet_name=0)
-    print(f"Ingelezen: {len(df)} records")
+    log.info(f"Ingelezen: {len(df)} records")
 
     # Pas classificatie toe
     extra = df.apply(classify, axis=1, result_type='expand')
     out = pd.concat([df, extra], axis=1)
 
     # Samenvatting per detected_type
-    print("\n=== Verdeling per detected_type ===")
-    print(out['detected_type'].value_counts().to_string())
+    log.info("\n=== Verdeling per detected_type ===")
+    log.info(out['detected_type'].value_counts().to_string())
 
     # Kruistabel land x type
-    print("\n=== Kruistabel detected_country x detected_type ===")
-    print(out.groupby(['detected_country', 'detected_type']).size()
-          .unstack(fill_value=0).to_string())
+    log.info("\n=== Kruistabel detected_country x detected_type ===")
+    log.info(out.groupby(['detected_country', 'detected_type']).size()
+             .unstack(fill_value=0).to_string())
 
     # Records waar cx_businesstype iets zegt maar wij 'onbekend' classificeren
     suspicious = out[
         (out['detected_type'] == 'onbekend') & out['cx_businesstype'].notna()
     ]
-    print(f"\n=== 'Onbekend' maar wel een cx_businesstype: {len(suspicious)} records ===")
+    log.info(f"\n=== 'Onbekend' maar wel een cx_businesstype: {len(suspicious)} records ===")
     if len(suspicious) > 0:
-        print(suspicious[['name', 'cx_businesstype', 'cx_address1_country']]
-              .head(10).to_string())
+        log.info(suspicious[['name', 'cx_businesstype', 'cx_address1_country']]
+                 .head(10).to_string())
 
     # Records waar wij een government-type detecteren maar cx_businesstype iets anders zegt
     # (handig om te zien of de bestaande kolom betrouwbaar is)
@@ -361,14 +385,14 @@ def main(input_path='full_input.xlsx', output_path='step1_classified.xlsx'):
         & ~out['cx_businesstype'].isin(['Gemeente', 'Provincie', 'Waterschap',
                                           'Politie/politiezone', 'Deelgemeente'])
     ]
-    print(f"\n=== Conflict tussen onze detectie en cx_businesstype: {len(conflict)} ===")
+    log.info(f"\n=== Conflict tussen onze detectie en cx_businesstype: {len(conflict)} ===")
     if len(conflict) > 0:
-        print(conflict[['name', 'detected_type', 'cx_businesstype']]
-              .head(10).to_string())
+        log.info(conflict[['name', 'detected_type', 'cx_businesstype']]
+                 .head(10).to_string())
 
     # Schrijf output
     out.to_excel(output_path, index=False)
-    print(f"\nOutput: {output_path}")
+    log.info(f"\nOutput: {output_path}")
     return out
 
 
@@ -383,4 +407,5 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
+    setup_file_logging('step1_classify')
     main(args.input, args.output)

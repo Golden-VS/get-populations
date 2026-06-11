@@ -217,6 +217,31 @@ python step2_enrich.py \
 - `final_enriched.xlsx` is the complete file: original columns + type
   detection + segments + population.
 
+### How the population columns work
+
+- **`cx_population`** is updated *in place* (same column name as in the
+  CRM, so the file can be imported back directly). If no new value is
+  found for a record, the old CRM value is **kept**, never blanked.
+- **`previous_population`** (new column) holds the old CRM value as it was
+  before this run, so you can filter on records where the value changed.
+- Supporting columns explain every value: `bron` (source, incl. URL or
+  Wikidata ID), `proces` (short explanation in Dutch), `peildatum_inwoners`
+  (reference year of the statistic), `data_leeftijd_jaren` (age of that
+  statistic in years - high values flag stale data), `match_score` and
+  `invuldatum`.
+
+### Population corrections
+
+Step 2 has its own corrections table (separate from the segment one).
+Create e.g. `overrides_population.xlsx` with columns:
+
+| account_id | population_override | reden |
+|---|---|---|
+| (CRM guid) | 154000 | figure from annual report 2025 |
+
+and run with `--overrides overrides_population.xlsx`. Overrides win over
+every automatic lookup.
+
 ## 6. Next year's run (yearly refresh)
 
 1. Make a fresh DWH export following **step 0** at the top of this manual

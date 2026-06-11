@@ -145,6 +145,36 @@ def _sparql_population_template(qid_filter):
     """
 
 
+# De eerste twee cijfers van de Duitse Amtlicher Gemeindeschluessel (AGS)
+# zijn de Bundesland-code (01 Schleswig-Holstein t/m 16 Thueringen).
+DE_BUNDESLAND_PREFIXES = [f'{i:02d}' for i in range(1, 17)]
+
+
+def _sparql_population_ags_template(bundesland_prefix):
+    """
+    Variant voor DE gemeenten: selecteert op de officiele gemeentesleutel
+    (AGS, P439) i.p.v. de klasse-hierarchie. wdt:P31 wd:Q262166 vindt maar
+    ~350 van de ~11.000 Duitse gemeenten omdat elk Bundesland eigen
+    subklassen heeft; vrijwel elke gemeente heeft wel een AGS.
+
+    Gechunkt per Bundesland: de hele set heeft ~130k populatie-statements
+    (gemeten 2026-06-11) en dat is te groot voor een antwoord (truncatie,
+    zelfde faalpatroon als de oude de_verbandsgemeinden-query). Per
+    Bundesland blijft het 1-2 MB en ~1-2 seconden.
+    """
+    return f"""
+    SELECT DISTINCT ?item ?itemLabel ?population ?date WHERE {{
+      ?item wdt:P439 ?ags .
+      FILTER(STRSTARTS(STR(?ags), "{bundesland_prefix}"))
+      FILTER NOT EXISTS {{ ?item wdt:P576 ?dissolved }}
+      ?item p:P1082 ?stmt .
+      ?stmt ps:P1082 ?population .
+      OPTIONAL {{ ?stmt pq:P585 ?date . }}
+      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "de,nl,en". }}
+    }}
+    """
+
+
 # Lijst van alle referentielijsten die we ophalen.
 # 'qid' = Wikidata-klasse-Q-ID, 'description' = mens-leesbaar.
 #
@@ -165,7 +195,7 @@ REFERENCE_SOURCES = [
     {'name': 'nl_provincies',         'qid': 'wd:Q134390',   'description': 'NL provincies'},
     {'name': 'be_gemeenten',          'qid': 'wd:Q493522',   'description': 'BE gemeenten'},
     {'name': 'be_provincies',         'qid': 'wd:Q83116',    'description': 'BE provincies'},
-    {'name': 'de_gemeinden',          'qid': 'wd:Q262166',   'description': 'DE gemeinden'},
+    {'name': 'de_gemeinden',          'fetch': 'ags_chunked', 'description': 'DE gemeinden (AGS P439, per Bundesland)'},
     {'name': 'de_landkreise',         'qid': 'wd:Q106658',   'description': 'DE landkreise'},
     {'name': 'de_verbandsgemeinden',  'qid': 'wd:Q253019',   'description': 'DE verbandsgemeinden'},
 ]
@@ -730,12 +760,23 @@ def fetch_reference_data(source, user_agent, refresh=False, offline=False,
         return pd.read_csv(path)
 
     log.info(f"  {prefix}{source['name']} <- Wikidata SPARQL (kan 30-90 sec duren)...")
-    query = _sparql_population_template(source['qid'])
     start = time.time()
-    # Heartbeat zorgt voor 'nog bezig'-updates tijdens lange queries
-    with heartbeat(f"{source['name']} downloaden"):
-        bindings = sparql_query(query, user_agent)
-    df = parse_sparql_to_dataframe(bindings)
+    if source.get('fetch') == 'ags_chunked':
+        # DE gemeenten: chunk per Bundesland (zie _sparql_population_ags_template)
+        frames = []
+        for i, bl in enumerate(DE_BUNDESLAND_PREFIXES, start=1):
+            with heartbeat(f"{source['name']} Bundesland {bl} ({i}/{len(DE_BUNDESLAND_PREFIXES)})"):
+                bindings = sparql_query(_sparql_population_ags_template(bl), user_agent)
+            frames.append(parse_sparql_to_dataframe(bindings))
+            log.info(f"  {prefix}{source['name']}: Bundesland {bl} klaar "
+                     f"({i}/{len(DE_BUNDESLAND_PREFIXES)})")
+        df = pd.concat(frames, ignore_index=True)
+    else:
+        query = _sparql_population_template(source['qid'])
+        # Heartbeat zorgt voor 'nog bezig'-updates tijdens lange queries
+        with heartbeat(f"{source['name']} downloaden"):
+            bindings = sparql_query(query, user_agent)
+        df = parse_sparql_to_dataframe(bindings)
     # SPARQL geeft alle population-statements terug (snelle query); we dedupliceren
     # naar de meest recente peildatum per item in Python.
     n_before = len(df)

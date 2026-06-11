@@ -54,6 +54,8 @@ UITVOER-KOLOMMEN (toegevoegd):
     - Segment:             hoofdsegment uit de vaste lijst
     - Segment (detailed):  verfijning (vast voor overheid, kort vrij label
                            voor commercieel)
+    - Segment (category):  Governmental / Non-profit / Commercial / Unknown,
+                           afgeleid uit Segment (geen extra API-kosten)
     - segment_confidence:  high/medium/low
     - segment_bron:        'mapping detected_type', 'Claude <model>', 'cache',
                            'override-tabel' of leeg
@@ -141,6 +143,46 @@ SEGMENTS = [
     'Commercial (other)',   # zeker commercieel, branche onbekend of past niet in de lijst
     'Unknown',              # helemaal niets vast te stellen
 ]
+
+# Categorie per segment: Governmental / Non-profit / Commercial / Unknown.
+# Afgeleid van het Segment (geen extra API-kosten, cache blijft geldig).
+# Keuzes: Education & research en Healthcare & social care zijn in NL/BE
+# overwegend stichtingen/publiek -> Non-profit. Uitzonderingen op type-niveau
+# staan in DTYPE_CATEGORY_OVERRIDES.
+SEGMENT_TO_CATEGORY = {
+    'Local government':                   'Governmental',
+    'Regional government':                'Governmental',
+    'National government':                'Governmental',
+    'Inter-municipal cooperation':        'Governmental',
+    'Public safety & emergency':          'Governmental',
+    'Agriculture & food':                 'Commercial',
+    'Automotive':                         'Commercial',
+    'Construction & real estate':         'Commercial',
+    'Consulting & professional services': 'Commercial',
+    'Education & research':               'Non-profit',
+    'Energy & utilities':                 'Commercial',
+    'Financial services & insurance':     'Commercial',
+    'Healthcare & social care':           'Non-profit',
+    'Hospitality, travel & leisure':      'Commercial',
+    'IT & software':                      'Commercial',
+    'Logistics & transport':              'Commercial',
+    'Manufacturing & industry':           'Commercial',
+    'Media & marketing':                  'Commercial',
+    'Non-profit & associations':          'Non-profit',
+    'Retail & wholesale':                 'Commercial',
+    'Telecom':                            'Commercial',
+    'Commercial (other)':                 'Commercial',
+    'Unknown':                            'Unknown',
+}
+
+# Uitzonderingen op basis van detected_type (wint van SEGMENT_TO_CATEGORY):
+# GGD is een gemeentelijke gezondheidsdienst, Stadtwerke zijn gemeentelijk
+# eigendom - beide overheids ondanks hun zorg/energie-segment.
+DTYPE_CATEGORY_OVERRIDES = {
+    'ggd':        'Governmental',
+    'stadtwerke': 'Governmental',
+}
+
 
 # Laag 1: deterministische mapping van detected_type -> (Segment, detailed).
 # Sleutels zijn de werkelijke waarden uit step1_classified.xlsx.
@@ -643,8 +685,23 @@ def main():
     # ------------------------------------------------------------------
     # Output
     # ------------------------------------------------------------------
+    # Categorie afleiden uit Segment (+ detected_type-uitzonderingen).
+    # Gebeurt NA de overrides zodat een gecorrigeerd segment de juiste
+    # categorie krijgt.
+    dtypes = df['detected_type'].fillna('').astype(str).tolist() \
+        if 'detected_type' in df.columns else [''] * n
+    col_category = []
+    for seg, dt in zip(col_segment, dtypes):
+        if not seg:
+            col_category.append('')
+        elif dt in DTYPE_CATEGORY_OVERRIDES:
+            col_category.append(DTYPE_CATEGORY_OVERRIDES[dt])
+        else:
+            col_category.append(SEGMENT_TO_CATEGORY.get(seg, 'Unknown'))
+
     df['Segment'] = col_segment
     df['Segment (detailed)'] = col_detailed
+    df['Segment (category)'] = col_category
     df['segment_confidence'] = col_confidence
     df['segment_bron'] = col_bron
     df['segment_invuldatum'] = col_datum
@@ -657,6 +714,11 @@ def main():
     counts = df['Segment'].replace('', '(leeg)').value_counts()
     for seg, cnt in counts.items():
         log.info(f'  {seg}: {cnt}')
+
+    log.info('=== Verdeling per Segment (category) ===')
+    cat_counts = df['Segment (category)'].replace('', '(leeg)').value_counts()
+    for cat, cnt in cat_counts.items():
+        log.info(f'  {cat}: {cnt}')
 
 
 if __name__ == '__main__':

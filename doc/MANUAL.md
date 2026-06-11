@@ -152,7 +152,8 @@ python step1b_segment.py \
 
 - Takes a few minutes, costs well under $1.
 - Open `step1b_test.xlsx` and check the columns "Segment",
-  "Segment (detailed)", `segment_confidence` and `segment_bron`.
+  "Segment (detailed)", "Segment (category)" (Governmental / Non-profit /
+  Commercial / Unknown), `segment_confidence` and `segment_bron`.
 - Pay extra attention to rows with confidence `low` and segment
   `Commercial (other)` or `Unknown`.
 

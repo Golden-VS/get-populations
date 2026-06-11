@@ -222,8 +222,13 @@ REFERENCE_SOURCES = [
     # prefix (Heidekreis, Rhein-Neckar-Kreis, Region Hannover) blijven intact.
     {'name': 'de_landkreise',         'fetch': 'kreis_single', 'description': 'DE landkreise (P440 zonder P439)',
      'strip_name_prefix_re': r'^(?:Landkreis|Kreis)\s+'},
-    {'name': 'de_verbandsgemeinden',  'qid': 'wd:Q253019',   'description': 'DE verbandsgemeinden'},
 ]
+# NB: de_verbandsgemeinden verwijderd (2026-06-11). Het oude Q253019 was
+# helemaal niet de VG-klasse maar "Ortsteil" (70k items, 149k statements -
+# vandaar de afgekapte antwoorden). De juiste klasse Q23006 heeft maar 13
+# van de 112 VG's met P1082, en de P150/P131-lidmaatschappen zijn zo
+# fragmentarisch dat sommen gevaarlijk fout zouden zijn (bv. 2 van de 23
+# leden). Aanpak: directe waarden via DE_VERBANDSGEMEINDE_INWONERS.
 
 
 # Caribische landen: één query voor de drie landen plus Caribisch Nederland.
@@ -401,6 +406,50 @@ NL_STADSDEEL_INWONERS = {
                                'bron_url':   'https://nl.wikipedia.org/wiki/Amsterdam-Nieuw-West'},
     'Weesp':                  {'population':  20766, 'peildatum': '2022',
                                'bron_url':   'https://nl.wikipedia.org/wiki/Weesp'},
+}
+
+
+# DE Verbandsgemeinden: directe waarden uit de Duitse Wikipedia-infoboxen
+# (die het officiele Landesamt-inwonertal tonen), opgehaald 2026-06-11,
+# peildatum overal 31-12-2024. Wikidata is voor dit type onbruikbaar (zie
+# NB bij REFERENCE_SOURCES).
+#
+# Dekt de VG's die in het CRM voorkomen (15 van de 112 bestaande). Een
+# nieuw VG-record in een toekomstige export geeft "niet in tabel" in de
+# proces-kolom: dan hier een regel toevoegen (Einwohner staat in de infobox
+# van het de.wikipedia-artikel).
+# Sleutels = canonical_name (step1 stript het "Verbandsgemeinde "-prefix).
+DE_VERBANDSGEMEINDE_INWONERS = {
+    'Sprendlingen-Gensingen': {'population': 14443, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Sprendlingen-Gensingen'},
+    'Vordereifel':            {'population': 16490, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Vordereifel'},
+    'Herxheim':               {'population': 15689, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Herxheim'},
+    'Saarburg-Kell':          {'population': 33586, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Saarburg-Kell'},
+    'Ruwer':                  {'population': 18264, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Ruwer'},
+    'Kirchen (Sieg)':         {'population': 22820, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Kirchen_(Sieg)'},
+    'Kusel-Altenglan':        {'population': 22987, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Kusel-Altenglan'},
+    'Traben-Trarbach':        {'population': 17054, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Traben-Trarbach'},
+    'Daun':                   {'population': 21989, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Daun'},
+    'Wissen':                 {'population': 15320, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Wissen'},
+    'Otterbach-Otterberg':    {'population': 18763, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Otterbach-Otterberg'},
+    'Nordpfälzer Land':       {'population': 17221, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Nordpf%C3%A4lzer_Land'},
+    'Asbach':                 {'population': 23618, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Asbach'},
+    'Bernkastel-Kues':        {'population': 27404, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Bernkastel-Kues'},
+    'Monsheim':               {'population': 10406, 'peildatum': '2024',
+                               'bron_url': 'https://de.wikipedia.org/wiki/Verbandsgemeinde_Monsheim'},
 }
 
 
@@ -940,6 +989,7 @@ UNSUPPORTED_AGGREGATION = {
 #                     stadsdelen heetten formeel "deelgemeente" tot 2010;
 #                     Rotterdamse deelgemeenten zijn in 2014 afgeschaft)
 #   'politiezone'  -> aparte aggregatie via BE_POLITIEZONE_GEMEENTEN
+#   'verbandsgemeinde' -> directe lookup in DE_VERBANDSGEMEINDE_INWONERS
 TYPE_TO_REFERENCE = {
     'gemeente_nl':       'nl_gemeenten',
     'gemeente_be':       'be_gemeenten',
@@ -950,7 +1000,6 @@ TYPE_TO_REFERENCE = {
     'provincie_be':      'be_provincies',
     'landkreis':         'de_landkreise',
     'landratsamt':       'de_landkreise',   # Landratsamt X -> match op Landkreis X
-    'verbandsgemeinde':  'de_verbandsgemeinden',
     'land':              'caribbean_countries',
 }
 
@@ -1072,6 +1121,22 @@ def enrich_record(row, ref_data, gemeenten_nl):
             'peildatum_inwoners': matched['peildatum'],
             'bron':               f"NL_STADSDEEL_INWONERS ({matched['bron_url']})",
             'proces':             f'directe waarde uit stadsdeel-tabel voor "{used_key}"',
+        })
+        return result
+
+    # Directe waarde-lookup: DE Verbandsgemeinde (Wikidata onbruikbaar voor
+    # dit type; waarden uit DE Wikipedia-infoboxen, zie tabel)
+    if etype == 'verbandsgemeinde':
+        matched, used_key = _resolve_mapping(canon, DE_VERBANDSGEMEINDE_INWONERS)
+        if matched is None:
+            result['proces'] = (f'verbandsgemeinde "{canon}" niet in '
+                                f'DE_VERBANDSGEMEINDE_INWONERS-tabel')
+            return result
+        result.update({
+            'cx_population_new':  matched['population'],
+            'peildatum_inwoners': matched['peildatum'] or None,
+            'bron':               f"DE_VERBANDSGEMEINDE_INWONERS ({matched['bron_url']})",
+            'proces':             f'directe waarde uit verbandsgemeinde-tabel voor "{used_key}"',
         })
         return result
 

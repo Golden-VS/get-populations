@@ -1137,7 +1137,7 @@ def _plz_prefix_score(crm_plz, postcodes_str):
     return best
 
 
-def fuzzy_match(query_name, candidates_df, postcode=None):
+def fuzzy_match(query_name, candidates_df, postcode=None, min_score=None):
     """
     Fuzzy match query tegen candidates_df['name']. Gebruikt fuzz.ratio (Levenshtein-based),
     wat strenger is dan WRatio en false positives als 'Alken'->'Halen' voorkomt.
@@ -1148,7 +1148,16 @@ def fuzzy_match(query_name, candidates_df, postcode=None):
     referentielijst een 'postcodes'-kolom heeft, kiest de postcode de juiste.
     De gekozen rij krijgt een '_naamcollisie'-key met uitleg voor de
     proces-kolom.
+
+    min_score: ondergrens voor de fuzzy score (default FUZZY_LOW_THRESHOLD).
+    Voor gemeente-lookups geldt FUZZY_HIGH_THRESHOLD: die referentielijsten
+    zijn compleet, dus "naam ontbreekt" betekent "bestaat niet (meer)" en
+    moet GEEN match opleveren. Voorkomt dat een opgeheven gemeente als
+    Bussum (P576, uit de lijst gefilterd) op score ~86 aan het levende
+    Brunssum gekoppeld wordt - de oude CRM-waarde blijft dan terecht staan.
     """
+    if min_score is None:
+        min_score = FUZZY_LOW_THRESHOLD
     if not isinstance(query_name, str) or not query_name.strip():
         return None, 0
     if candidates_df is None or len(candidates_df) == 0:
@@ -1196,7 +1205,7 @@ def fuzzy_match(query_name, candidates_df, postcode=None):
     if result is None:
         return None, 0
     matched_norm, score, idx = result
-    if score < FUZZY_LOW_THRESHOLD:
+    if score < min_score:
         return None, score
     return candidates_df.iloc[idx].to_dict(), score
 
@@ -1218,6 +1227,11 @@ UNSUPPORTED_AGGREGATION = {
     'samenwerking', 'samenwerking_nl', 'belastingsamenwerking',
     'hulpverleningszone', 'ggd', 'stadsregio', 'amt', 'verwaltungsgemeinschaft',
 }
+
+# Types waarvan de referentielijst COMPLEET is voor actuele entiteiten:
+# een ontbrekende naam betekent daar "bestaat niet (meer)", dus die lookups
+# eisen FUZZY_HIGH_THRESHOLD i.p.v. FUZZY_LOW_THRESHOLD (zie fuzzy_match).
+STRICT_MATCH_TYPES = {'gemeente_nl', 'gemeente_be', 'gemeinde_de', 'ocmw', 'agb'}
 
 # Mapping detected_type -> naam van de referentielijst voor 1-op-1 match.
 # Niet in deze tabel:
@@ -1444,9 +1458,15 @@ def enrich_record(row, ref_data, gemeenten_nl):
             plz = m.group(1)
             break
 
-    matched, score = fuzzy_match(canon, ref_df, postcode=plz)
+    # Gemeente-lookups eisen een (bijna-)exacte naam: die lijsten zijn
+    # compleet, dus een ontbrekende naam = opgeheven/onbestaande gemeente
+    # en dan moet de oude CRM-waarde blijven staan (geen zwakke fuzzy match
+    # naar een toevallig gelijkende levende gemeente).
+    min_score = FUZZY_HIGH_THRESHOLD if etype in STRICT_MATCH_TYPES else FUZZY_LOW_THRESHOLD
+
+    matched, score = fuzzy_match(canon, ref_df, postcode=plz, min_score=min_score)
     if matched is None:
-        result['proces'] = f'geen match voor "{canon}" in {ref_name} (beste score onder {FUZZY_LOW_THRESHOLD})'
+        result['proces'] = f'geen match voor "{canon}" in {ref_name} (beste score onder {min_score})'
         return result
 
     pop = matched.get('population')
@@ -1476,6 +1496,12 @@ def enrich_record(row, ref_data, gemeenten_nl):
     # maken in de proces-kolom.
     if matched.get('_naamcollisie'):
         proces += f"; {matched['_naamcollisie']}"
+
+    # Niet-exacte gemeente-match (typo-niveau, score 92-99): wel toepassen,
+    # maar markeren voor handmatige controle.
+    if etype in STRICT_MATCH_TYPES and int(score) < 100:
+        proces += (f'; LET OP: geen exacte naam-match (score {int(score)}), '
+                   f'controleer handmatig')
 
     result.update({
         'cx_population_new':  int(pop),

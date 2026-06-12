@@ -196,6 +196,24 @@ def _sparql_population_kreis_template():
     """
 
 
+def _sparql_plz_ags_template(bundesland_prefix):
+    """
+    Postcodes (P281) per DE gemeente, per Bundesland-chunk. Apart van de
+    populatie-query gehouden: items als Muenchen hebben 75+ postcodes en
+    zouden de populatie-resultaten multiplicatief opblazen. Gebruikt om
+    naamcollisies tussen gelijknamige gemeenten op te lossen (486 namen
+    komen meermaals voor; 'Neuenkirchen' 11x).
+    """
+    return f"""
+    SELECT ?item ?plz WHERE {{
+      ?item wdt:P439 ?ags .
+      FILTER(STRSTARTS(STR(?ags), "{bundesland_prefix}"))
+      FILTER NOT EXISTS {{ ?item wdt:P576 ?dissolved }}
+      ?item wdt:P281 ?plz .
+    }}
+    """
+
+
 # Lijst van alle referentielijsten die we ophalen.
 # 'qid' = Wikidata-klasse-Q-ID, 'description' = mens-leesbaar.
 #
@@ -841,13 +859,27 @@ def fetch_reference_data(source, user_agent, refresh=False, offline=False,
     if source.get('fetch') == 'ags_chunked':
         # DE gemeenten: chunk per Bundesland (zie _sparql_population_ags_template)
         frames = []
+        plz_rows = []
         for i, bl in enumerate(DE_BUNDESLAND_PREFIXES, start=1):
             with heartbeat(f"{source['name']} Bundesland {bl} ({i}/{len(DE_BUNDESLAND_PREFIXES)})"):
                 bindings = sparql_query(_sparql_population_ags_template(bl), user_agent)
+                plz_bindings = sparql_query(_sparql_plz_ags_template(bl), user_agent)
             frames.append(parse_sparql_to_dataframe(bindings))
+            for b in plz_bindings:
+                plz_rows.append({
+                    'qid': b['item']['value'].rsplit('/', 1)[-1],
+                    'plz': b['plz']['value'],
+                })
             log.info(f"  {prefix}{source['name']}: Bundesland {bl} klaar "
                      f"({i}/{len(DE_BUNDESLAND_PREFIXES)})")
         df = pd.concat(frames, ignore_index=True)
+        # Postcodes per gemeente samenvoegen tot een kolom; gebruikt door
+        # fuzzy_match om gelijknamige gemeenten te onderscheiden.
+        if plz_rows:
+            plz_df = (pd.DataFrame(plz_rows).groupby('qid')['plz']
+                      .apply(lambda v: ' '.join(sorted(set(map(str, v)))))
+                      .rename('postcodes').reset_index())
+            df = df.merge(plz_df, on='qid', how='left')
     elif source.get('fetch') == 'kreis_single':
         with heartbeat(f"{source['name']} downloaden"):
             bindings = sparql_query(_sparql_population_kreis_template(), user_agent)
@@ -1086,11 +1118,36 @@ def normalize(s):
     return s
 
 
-def fuzzy_match(query_name, candidates_df):
+def _plz_prefix_score(crm_plz, postcodes_str):
+    """
+    Hoogste gemeenschappelijke-prefixlengte tussen de CRM-postcode en de
+    5-cijferige postcodes van een kandidaat (5 = exacte postcode). Bereiken
+    als "01067-01069" leveren hun eindpunten en matchen via prefix.
+    """
+    if not crm_plz or not isinstance(postcodes_str, str):
+        return 0
+    best = 0
+    for token in re.findall(r'\d{5}', postcodes_str):
+        n = 0
+        for a, b in zip(crm_plz, token):
+            if a != b:
+                break
+            n += 1
+        best = max(best, n)
+    return best
+
+
+def fuzzy_match(query_name, candidates_df, postcode=None):
     """
     Fuzzy match query tegen candidates_df['name']. Gebruikt fuzz.ratio (Levenshtein-based),
     wat strenger is dan WRatio en false positives als 'Alken'->'Halen' voorkomt.
     Returnt (best_row_dict, score) of (None, score < LOW_THRESHOLD).
+
+    postcode: optionele CRM-postcode (5 cijfers, DE). Als meerdere kandidaten
+    exact dezelfde naam hebben (DE: 486 namen komen meermaals voor) en de
+    referentielijst een 'postcodes'-kolom heeft, kiest de postcode de juiste.
+    De gekozen rij krijgt een '_naamcollisie'-key met uitleg voor de
+    proces-kolom.
     """
     if not isinstance(query_name, str) or not query_name.strip():
         return None, 0
@@ -1102,10 +1159,37 @@ def fuzzy_match(query_name, candidates_df):
     if not norm_query or not norm_names:
         return None, 0
 
-    # Exact match (op normalized) eerst
-    for i, n in enumerate(norm_names):
-        if n == norm_query:
-            return candidates_df.iloc[i].to_dict(), 100
+    # Exact match (op normalized) eerst - ALLE exacte hits verzamelen,
+    # want gelijknamige gemeenten vereisen disambiguatie.
+    exact_idx = [i for i, n in enumerate(norm_names) if n == norm_query]
+    if len(exact_idx) == 1:
+        return candidates_df.iloc[exact_idx[0]].to_dict(), 100
+    if len(exact_idx) > 1:
+        has_plz_col = 'postcodes' in candidates_df.columns
+        if postcode and has_plz_col:
+            scored = sorted(
+                exact_idx,
+                key=lambda i: _plz_prefix_score(
+                    postcode, candidates_df.iloc[i].get('postcodes')),
+                reverse=True)
+            best_i = scored[0]
+            best_score = _plz_prefix_score(
+                postcode, candidates_df.iloc[best_i].get('postcodes'))
+            row = candidates_df.iloc[best_i].to_dict()
+            if best_score >= 3:
+                row['_naamcollisie'] = (f'{len(exact_idx)} gelijknamige kandidaten, '
+                                        f'gekozen via postcode {postcode} '
+                                        f'(prefix-match {best_score}/5)')
+            else:
+                row['_naamcollisie'] = (f'LET OP: {len(exact_idx)} gelijknamige '
+                                        f'kandidaten, postcode {postcode} gaf geen '
+                                        f'uitsluitsel - eerste gekozen')
+            return row, 100
+        # Geen postcode-signaal: eerste nemen maar de ambiguiteit markeren
+        row = candidates_df.iloc[exact_idx[0]].to_dict()
+        row['_naamcollisie'] = (f'LET OP: {len(exact_idx)} gelijknamige kandidaten, '
+                                f'geen postcode beschikbaar - eerste gekozen')
+        return row, 100
 
     # Anders: fuzz.ratio. Geen partial/WRatio -> minder false positives.
     result = process.extractOne(norm_query, norm_names, scorer=fuzz.ratio)
@@ -1349,7 +1433,18 @@ def enrich_record(row, ref_data, gemeenten_nl):
         result['proces'] = f'referentielijst {ref_name} is leeg'
         return result
 
-    matched, score = fuzzy_match(canon, ref_df)
+    # CRM-postcode (5 cijfers = DE) meegeven zodat gelijknamige DE gemeenten
+    # via de postcode onderscheiden worden. NL/BE-postcodes matchen het
+    # 5-cijfer-patroon niet en die referentielijsten hebben toch geen
+    # 'postcodes'-kolom; daar verandert dus niets.
+    plz = None
+    for field in ('cx_address3_postalcode', 'address1_composite'):
+        m = re.search(r'\b(\d{5})\b', str(row.get(field) or ''))
+        if m:
+            plz = m.group(1)
+            break
+
+    matched, score = fuzzy_match(canon, ref_df, postcode=plz)
     if matched is None:
         result['proces'] = f'geen match voor "{canon}" in {ref_name} (beste score onder {FUZZY_LOW_THRESHOLD})'
         return result
@@ -1376,6 +1471,11 @@ def enrich_record(row, ref_data, gemeenten_nl):
         proces = f'Landratsamt gekoppeld aan Landkreis "{matched["name"]}" (score {int(score)})'
     elif etype == 'land':
         proces = f'Caribische overheid gekoppeld aan totaal-inwonertal van {matched["name"]} (score {int(score)})'
+
+    # Naamcollisie-info uit fuzzy_match (gelijknamige gemeenten) zichtbaar
+    # maken in de proces-kolom.
+    if matched.get('_naamcollisie'):
+        proces += f"; {matched['_naamcollisie']}"
 
     result.update({
         'cx_population_new':  int(pop),

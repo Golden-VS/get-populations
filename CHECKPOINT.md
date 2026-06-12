@@ -232,12 +232,16 @@ gemeenten don't have `P576` set in Wikidata, so the dissolved filter
 doesn't exclude them. The `data_leeftijd_jaren` column (added in
 `017aa56`) surfaces stale matches per row.
 
-KNOWN EDGE (found 2026-06-11 while testing CBS): gemeenten that ARE
-P576-tagged (e.g. Bussum, dissolved 2016) get excluded and can then
-fuzzy-FALSE-POSITIVE onto a similar current name ("Bussum" -> Brunssum,
-score >=85). Candidate fixes: higher threshold for nl_gemeenten, or
-keep P576 rows with an is_historisch flag. Low priority - review output
-rows where proces shows a fuzzy (non-100) score.
+EDGE RESOLVED (`1997e6b`, 2026-06-12): gemeente lookups now require
+FUZZY_HIGH_THRESHOLD (STRICT_MATCH_TYPES) because those lists are
+complete - absent name = doesn't exist (anymore) = keep old CRM value.
+User's insight: a dissolved gemeente's population is frozen and needs
+no update, so no-match is the correct outcome; the bug was the weak
+fuzzy overwrite. Blocked 6 real wrong matches (Bussum->Brunssum,
+Winschoten->Linschoten, Hoeselt->Herselt x2, Freiburg->Freiberg,
+Froendenberg->Rodenberg). 6 legit typo-level matches (85-91) now keep
+the old value instead - handle via overrides file if fresh values are
+wanted. Surviving 92-99 matches carry a "LET OP" proces marker.
 
 NOT YET DONE but discussed: per-source dissolved filter (off for
 `nl_gemeenten`, on for `be_gemeenten`) so that even `P576`-tagged old
@@ -419,9 +423,9 @@ CBS fetcher). Remaining:
    belastingsamenwerking, omgevingsdienst 5/30, amt,
    verwaltungsgemeinschaft; `ggd` could reuse the CBS table's GGD-regio
    column). User-driven prioritization.
-3. **Optional polish**: P576 fuzzy false-positive edge (item #4),
-   Dynamics 365 import section in the manual. (DE name collisions:
-   solved via postcode, `04dc15a`.)
+3. **Optional polish**: Dynamics 365 import section in the manual.
+   (DE name collisions: solved via postcode `04dc15a`; P576/weak-fuzzy
+   edge: solved via strict gemeente matching `1997e6b`.)
 
 ---
 

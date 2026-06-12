@@ -212,9 +212,12 @@ Now fetched via the AGS municipality key (P439), chunked per Bundesland
 (first two AGS digits; ~130k statements total would truncate in one
 response): 11,418 municipalities with population. de_landkreise
 similarly fixed via P440-minus-P439 (`7d8bf9f`): 288 districts,
-label prefixes stripped. Known edge: duplicate municipality names
-across states - fuzzy match takes the first exact hit; Bundesland-aware
-matching is possible future polish.
+label prefixes stripped. Duplicate municipality names across states
+(486 names, 55 CRM records affected) are RESOLVED via postal-code
+disambiguation (`04dc15a`, 2026-06-12): P281 postcodes fetched per
+gemeinde (98% coverage), fuzzy_match picks the candidate whose postcode
+matches the CRM record's; 52/52 resolvable cases hit exact 5/5, the 3
+records without a CRM postcode are flagged "LET OP" in proces.
 
 ### 4. NL gemeenten over-count - user wants historical KEPT (design decision)
 
@@ -417,8 +420,8 @@ CBS fetcher). Remaining:
    verwaltungsgemeinschaft; `ggd` could reuse the CBS table's GGD-regio
    column). User-driven prioritization.
 3. **Optional polish**: P576 fuzzy false-positive edge (item #4),
-   Bundesland-aware DE matching, Dynamics 365 import section in the
-   manual.
+   Dynamics 365 import section in the manual. (DE name collisions:
+   solved via postcode, `04dc15a`.)
 
 ---
 

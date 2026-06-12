@@ -133,13 +133,21 @@ def _sparql_population_template(qid_filter):
     #   nl_gemeenten: 1575 -> 1316 (verbetering, maar nog te veel; veel
     #                                historische NL gemeenten missen P576)
     # Goedkope existence check, geen merkbaar timeout-effect.
+    # ?articleName: titel van het nl.wikipedia-artikel als vangnet voor items
+    # ZONDER label in onze taalketen (dan geeft de label service de kale
+    # Q-ID terug, bv. Zottegem/Q226941 - onvindbaar voor de fuzzy match).
     return f"""
-    SELECT ?item ?itemLabel ?population ?date WHERE {{
+    SELECT ?item ?itemLabel ?population ?date ?articleName WHERE {{
       ?item wdt:P31 {qid_filter} .
       FILTER NOT EXISTS {{ ?item wdt:P576 ?dissolved }}
       ?item p:P1082 ?stmt .
       ?stmt ps:P1082 ?population .
       OPTIONAL {{ ?stmt pq:P585 ?date . }}
+      OPTIONAL {{
+        ?article schema:about ?item ;
+                 schema:isPartOf <https://nl.wikipedia.org/> ;
+                 schema:name ?articleName .
+      }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "nl,en,de,fr". }}
     }}
     """
@@ -163,13 +171,18 @@ def _sparql_population_ags_template(bundesland_prefix):
     Bundesland blijft het 1-2 MB en ~1-2 seconden.
     """
     return f"""
-    SELECT DISTINCT ?item ?itemLabel ?population ?date WHERE {{
+    SELECT DISTINCT ?item ?itemLabel ?population ?date ?articleName WHERE {{
       ?item wdt:P439 ?ags .
       FILTER(STRSTARTS(STR(?ags), "{bundesland_prefix}"))
       FILTER NOT EXISTS {{ ?item wdt:P576 ?dissolved }}
       ?item p:P1082 ?stmt .
       ?stmt ps:P1082 ?population .
       OPTIONAL {{ ?stmt pq:P585 ?date . }}
+      OPTIONAL {{
+        ?article schema:about ?item ;
+                 schema:isPartOf <https://de.wikipedia.org/> ;
+                 schema:name ?articleName .
+      }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "de,nl,en". }}
     }}
     """
@@ -811,8 +824,17 @@ def parse_sparql_to_dataframe(bindings):
     """Wikidata SPARQL JSON-bindings -> DataFrame."""
     rows = []
     for b in bindings:
+        name = b.get('itemLabel', {}).get('value', '')
+        # Item zonder label in onze taalketen: label service geeft de kale
+        # Q-ID terug. Val dan terug op de Wikipedia-artikeltitel (zonder
+        # eventueel "(gemeente)"-achtig suffix), anders is de rij
+        # onvindbaar voor de fuzzy match (bv. Zottegem/Q226941).
+        if re.match(r'^Q\d+$', name):
+            article = b.get('articleName', {}).get('value', '')
+            if article:
+                name = re.sub(r'\s*\([^)]*\)\s*$', '', article).strip()
         rows.append({
-            'name':       b.get('itemLabel', {}).get('value', ''),
+            'name':       name,
             'population': parse_population(b['population']['value']) if 'population' in b else None,
             'date':       b.get('date', {}).get('value', '')[:10] if 'date' in b else '',
             'qid':        b.get('item', {}).get('value', '').rsplit('/', 1)[-1],

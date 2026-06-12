@@ -242,6 +242,11 @@ Winschoten->Linschoten, Hoeselt->Herselt x2, Freiburg->Freiberg,
 Froendenberg->Rodenberg). 6 legit typo-level matches (85-91) now keep
 the old value instead - handle via overrides file if fresh values are
 wanted. Surviving 92-99 matches carry a "LET OP" proces marker.
+FOLLOW-UP (`Zwijndrecht BE` case, 2026-06-12): dissolved NL/BE gemeenten
+now resolve via nl/be_gemeenten_historisch companion sources (P576
+EXISTS variant of the template; 242 NL + 22 BE rows) - exact-name-only
+fallback in enrich_record, bron marked "opgeheven gemeente". Bussum
+gets its frozen 2010 value; the Brunssum fuzzy trap stays closed.
 
 NOT YET DONE but discussed: per-source dissolved filter (off for
 `nl_gemeenten`, on for `be_gemeenten`) so that even `P576`-tagged old

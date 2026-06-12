@@ -115,7 +115,7 @@ def setup_file_logging(script_name):
 # WIKIDATA SPARQL QUERIES
 # ============================================================================
 
-def _sparql_population_template(qid_filter):
+def _sparql_population_template(qid_filter, dissolved=False):
     """
     SPARQL-query die items van de gegeven klasse ophaalt met alle hun populatie-
     statements (inclusief peildatum als pq:P585 qualifier). qid_filter is bv
@@ -136,10 +136,17 @@ def _sparql_population_template(qid_filter):
     # ?articleName: titel van het nl.wikipedia-artikel als vangnet voor items
     # ZONDER label in onze taalketen (dan geeft de label service de kale
     # Q-ID terug, bv. Zottegem/Q226941 - onvindbaar voor de fuzzy match).
+    #
+    # dissolved=True draait het filter om: dan halen we juist de OPGEHEVEN
+    # entiteiten op (P576 aanwezig), met hun laatst bekende inwonertal.
+    # Die dienen als exact-match-vangnet voor CRM-records met namen van
+    # gefuseerde gemeenten (bv. Zwijndrecht BE -> Beveren-Kruibeke-
+    # Zwijndrecht per 2025, Bussum -> Gooise Meren per 2016).
+    dissolved_filter = ('FILTER EXISTS' if dissolved else 'FILTER NOT EXISTS')
     return f"""
     SELECT ?item ?itemLabel ?population ?date ?articleName WHERE {{
       ?item wdt:P31 {qid_filter} .
-      FILTER NOT EXISTS {{ ?item wdt:P576 ?dissolved }}
+      {dissolved_filter} {{ ?item wdt:P576 ?dissolved }}
       ?item p:P1082 ?stmt .
       ?stmt ps:P1082 ?population .
       OPTIONAL {{ ?stmt pq:P585 ?date . }}
@@ -246,6 +253,14 @@ REFERENCE_SOURCES = [
     {'name': 'nl_gemeenten',          'qid': 'wd:Q2039348',  'description': 'NL gemeenten'},
     {'name': 'nl_provincies',         'qid': 'wd:Q134390',   'description': 'NL provincies'},
     {'name': 'be_gemeenten',          'qid': 'wd:Q493522',   'description': 'BE gemeenten'},
+    # Historische (P576-opgeheven) gemeenten: ALLEEN gebruikt als exact-
+    # match-vangnet in enrich_record wanneer de actuele lijst geen match
+    # geeft. Een opgeheven gemeente heeft een bevroren laatst-bekend
+    # inwonertal; dat is precies wat zo'n CRM-record moet krijgen.
+    {'name': 'nl_gemeenten_historisch', 'qid': 'wd:Q2039348', 'dissolved': True,
+     'description': 'NL opgeheven gemeenten (laatst bekende inwonertal)'},
+    {'name': 'be_gemeenten_historisch', 'qid': 'wd:Q493522',  'dissolved': True,
+     'description': 'BE opgeheven gemeenten (laatst bekende inwonertal)'},
     {'name': 'be_provincies',         'qid': 'wd:Q83116',    'description': 'BE provincies'},
     {'name': 'de_gemeinden',          'fetch': 'ags_chunked', 'description': 'DE gemeinden (AGS P439, per Bundesland)'},
     # strip_name_prefix_re: Wikidata-labels zijn "Landkreis X"/"Kreis X" maar
@@ -907,7 +922,8 @@ def fetch_reference_data(source, user_agent, refresh=False, offline=False,
             bindings = sparql_query(_sparql_population_kreis_template(), user_agent)
         df = parse_sparql_to_dataframe(bindings)
     else:
-        query = _sparql_population_template(source['qid'])
+        query = _sparql_population_template(source['qid'],
+                                            dissolved=source.get('dissolved', False))
         # Heartbeat zorgt voor 'nog bezig'-updates tijdens lange queries
         with heartbeat(f"{source['name']} downloaden"):
             bindings = sparql_query(query, user_agent)
@@ -1490,6 +1506,17 @@ def enrich_record(row, ref_data, gemeenten_nl):
     min_score = FUZZY_HIGH_THRESHOLD if etype in STRICT_MATCH_TYPES else FUZZY_LOW_THRESHOLD
 
     matched, score = fuzzy_match(canon, ref_df, postcode=plz, min_score=min_score)
+    historisch = False
+    if matched is None:
+        # Vangnet: opgeheven/gefuseerde gemeenten (P576). ALLEEN exacte
+        # naam-match (min_score=100) zodat het zwakke-fuzzy-gevaar gesloten
+        # blijft. Een hit betekent: deze gemeente bestaat niet meer en
+        # krijgt zijn bevroren, laatst bekende inwonertal (bv. Zwijndrecht
+        # BE -> opgegaan in Beveren-Kruibeke-Zwijndrecht per 2025).
+        hist_df = ref_data.get(f'{ref_name}_historisch')
+        if hist_df is not None and len(hist_df):
+            matched, score = fuzzy_match(canon, hist_df, min_score=100)
+            historisch = matched is not None
     if matched is None:
         result['proces'] = f'geen match voor "{canon}" in {ref_name} (beste score onder {min_score})'
         return result
@@ -1528,10 +1555,16 @@ def enrich_record(row, ref_data, gemeenten_nl):
         proces += (f'; LET OP: geen exacte naam-match (score {int(score)}), '
                    f'controleer handmatig')
 
+    ref_label = ref_name
+    if historisch:
+        proces += ('; opgeheven/gefuseerde gemeente: bevroren laatst bekende '
+                   'inwonertal gebruikt')
+        ref_label = f'{ref_name}, opgeheven gemeente'
+
     result.update({
         'cx_population_new':  int(pop),
         'peildatum_inwoners': peildatum if peildatum else None,
-        'bron':               f'{bron_label} ({ref_name})',
+        'bron':               f'{bron_label} ({ref_label})',
         'proces':             proces,
         'match_score':        int(score),
     })

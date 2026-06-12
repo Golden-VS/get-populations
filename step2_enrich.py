@@ -1280,8 +1280,11 @@ def aggregate_sum(member_gemeenten, ref_gemeenten_nl):
             continue
         if pd.notna(row.get('population')):
             pops.append(int(row['population']))
-            if row.get('date'):
-                dates.append(row['date'])
+            # Uit een gecachte CSV komt een lege datum terug als NaN (float),
+            # en NaN is truthy - dus expliciet op string checken.
+            d = row.get('date')
+            if isinstance(d, str) and d:
+                dates.append(d)
 
     if not pops:
         return None, None, 0, missing, f'geen van {len(member_gemeenten)} gemeenten gevonden in referentielijst'

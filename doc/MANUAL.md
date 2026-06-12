@@ -235,6 +235,9 @@ python step2_enrich.py \
   found for a record, the old CRM value is **kept**, never blanked.
 - **`previous_population`** (new column) holds the old CRM value as it was
   before this run, so you can filter on records where the value changed.
+- **`population_gewijzigd`** (new column): `gewijzigd` / `gelijk` / `leeg`.
+  Filter on `gewijzigd` to review exactly which values would change in the
+  CRM; the `run_log` tab also shows the total count.
 - Supporting columns explain every value: `bron` (source, incl. URL or
   Wikidata ID), `proces` (short explanation in Dutch), `peildatum_inwoners`
   (reference year of the statistic), `data_leeftijd_jaren` (age of that

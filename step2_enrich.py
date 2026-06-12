@@ -1626,10 +1626,27 @@ def write_output(df, output_path):
     """Schrijft accounts-tab + draaitabel-tab + run-log-tab."""
     log.info(f"\n=== Output schrijven naar {output_path} ===")
 
+    # Snelle review-kolom: is de waarde deze run veranderd t.o.v. de vorige
+    # CRM-waarde? gewijzigd / gelijk / leeg (numeriek vergeleken; een verse
+    # lookup die hetzelfde getal oplevert telt als 'gelijk').
+    new = pd.to_numeric(df['cx_population'], errors='coerce')
+    old = pd.to_numeric(df['previous_population'], errors='coerce')
+
+    def _changed(n, o):
+        if pd.isna(n) and pd.isna(o):
+            return 'leeg'
+        if pd.isna(n) or pd.isna(o):
+            return 'gewijzigd'
+        return 'gelijk' if n == o else 'gewijzigd'
+
+    df = df.copy()
+    df['population_gewijzigd'] = [_changed(n, o) for n, o in zip(new, old)]
+
     # Order: metadata-kolommen achteraan.
     # data_leeftijd_jaren = aantal jaren tussen run-datum en peildatum_inwoners.
     # Hoog getal (~5+) signaleert mogelijk historische gemeente of verouderde bron.
-    meta_cols = ['previous_population', 'peildatum_inwoners', 'data_leeftijd_jaren',
+    meta_cols = ['previous_population', 'population_gewijzigd',
+                 'peildatum_inwoners', 'data_leeftijd_jaren',
                  'bron', 'proces', 'match_score', 'invuldatum']
     primary_cols = [c for c in df.columns if c not in meta_cols]
     df = df[primary_cols + [c for c in meta_cols if c in df.columns]]
@@ -1658,6 +1675,7 @@ def write_output(df, output_path):
         {'metriek': 'behouden_uit_eerdere_run', 'waarde': int((df['bron'] == 'eerdere CRM-waarde').sum())},
         {'metriek': 'overrides_toegepast',      'waarde': int((df['bron'] == 'override-tabel').sum())},
         {'metriek': 'leeg_gebleven',            'waarde': int(df['cx_population'].isna().sum())},
+        {'metriek': 'population_gewijzigd',     'waarde': int((df['population_gewijzigd'] == 'gewijzigd').sum())},
         {'metriek': 'unsupported_aggregatie',   'waarde': int(df['proces'].str.contains('vereist mapping-tabel', na=False).sum())},
     ])
 

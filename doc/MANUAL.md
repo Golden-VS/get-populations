@@ -209,7 +209,18 @@ python step2_enrich.py \
     --user-agent "your-org/1.0 (you@company.com)"
 ```
 
-- Wikidata requires a contact address in `--user-agent`; use a real email.
+- Wikidata requires a contact address in `--user-agent`. The whole string
+  is free text in the form `toolname/version (email)` - both parts are
+  yours to choose, nothing is registered anywhere. It only serves to
+  identify the caller so Wikimedia can contact you if a query misbehaves.
+  Concrete example:
+
+  ```bash
+  --user-agent "crm-enrichment/1.0 (jan.jansen@yourcompany.nl)"
+  ```
+
+  Pick any sensible tool name, keep `1.0` as version, and use a real
+  work email.
 - First run downloads reference data (5-10 min); later runs use the cache
   in `reference/` (refreshed yearly automatically, or force with
   `--refresh-cache`).

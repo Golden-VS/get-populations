@@ -1,10 +1,65 @@
 # Manual - Running the Account Enrichment Steps
 
 *Living document. We extend this manual as new steps are added.*
-*Last updated: 11 June 2026*
+*Last updated: 16 June 2026*
 
-This manual describes the full enrichment pipeline, from raw CRM export to
-the final file with all added columns.
+## What this pipeline does
+
+Once a year we export the full CRM account list and run it through three
+small scripts that automatically add two kinds of information:
+
+- **Segment** - what kind of organisation each account is (Local
+  government, Healthcare, IT & software, ...). See step 1b.
+- **Population** (`cx_population`) - the number of inhabitants, for the
+  government bodies among the accounts. See step 2.
+
+The result is one Excel file (`final_enriched.xlsx`) that can be loaded
+back into Dynamics 365. The rest of this manual is the step-by-step run
+guide; this opening section explains **which accounts get a population
+number and where that number comes from**.
+
+## Which accounts get a population, and from where
+
+A population is only filled for organisations that actually have
+inhabitants (a municipality does; an IT company does not). The classifier
+(step 1) labels every account with a type; step 2 then uses the source
+below per type. If a lookup finds nothing, the account keeps its existing
+CRM value (it is never blanked).
+
+| Account type (example) | Country | Population comes from |
+|---|---|---|
+| **Gemeente** / municipality (Gemeente Amsterdam) | NL | CBS "Gebieden in Nederland" - the official statistics office, current-year figure. Merged/abolished gemeenten fall back to their last-known figure from Wikidata. |
+| **Gemeente** / municipality (Gemeente Gavere) | BE | Wikidata (Belgian municipality list). Merged ones (e.g. Zwijndrecht, 2025) fall back to their last-known figure. |
+| **Gemeinde** / municipality (Stadt Lübeck) | DE | Wikidata, looked up via the official municipality key (AGS). Same-name towns are told apart by the account's postal code. |
+| **OCMW** (OCMW Gavere) | BE | Population of the **gemeente** it belongs to (same source as BE gemeente). |
+| **AGB** - autonomous municipal company (AGB Mortsel) | BE | Population of the **gemeente** it belongs to. |
+| **Landratsamt** / Kreisverwaltung (Landratsamt Kusel) | DE | Population of the **Landkreis** it belongs to. |
+| **Provincie** / province (Provincie Utrecht) | NL | Wikidata (NL province list). |
+| **Provincie** / province (Provincie Antwerpen) | BE | Wikidata (BE province list). |
+| **Landkreis** / district (Landkreis Bautzen) | DE | Wikidata, looked up via the official district key. |
+| **Politiezone** / police zone (Politiezone Antwerpen) | BE | Sum of the populations of the gemeenten the zone covers (173 zones mapped from the official list). |
+| **Veiligheidsregio** / safety region (Veiligheidsregio Zeeland) | NL | Sum of its member gemeenten; the membership list comes from CBS (all 25 regions). |
+| **Omgevingsdienst** / environmental agency | NL | Sum of its member gemeenten (mapping partially filled). |
+| **Waterschap** / water authority (Waterschap Aa en Maas) | NL | Fixed table of the 21 water authorities, taken from their own websites. |
+| **Stadsdeel** / city district (Stadsdeel Centrum) | NL | Fixed table of the 8 Amsterdam districts, from Wikipedia. |
+| **Verbandsgemeinde** (Verbandsgemeinde Daun) | DE | Fixed table from the German Wikipedia (official Landesamt figures). |
+| **Land** / country government (Caribbean) (Bestuur Aruba) | AW/CW/SX/BQ | Wikidata country total (Aruba, Curaçao, Sint Maarten, Caribisch Nederland). |
+
+**Accounts that deliberately get NO population** (they have no inhabitants):
+commercial companies, ministries / Rijksoverheid, Belgian FOD, Stadtwerke,
+intercommunales, CAW, Zweckverband. These keep an empty population field.
+
+**Types not yet automated** (they keep their existing CRM value until we
+build a mapping for them): inter-municipal cooperations (`samenwerking`,
+`belastingsamenwerking`), GGD health regions, `stadsregio`, BE
+`hulpverleningszone`, German `Amt` and `Verwaltungsgemeinschaft`. These are
+relatively few accounts; see the maintenance section for how to add them.
+
+> Every output row also has a **`bron`** column naming the exact source
+> used, and a **`proces`** column explaining the decision - so any single
+> value can be traced back. The technical view of these sources (which code
+> table, how to refresh) is in *"How the population values are sourced"*
+> further down.
 
 ## Getting the input from the data warehouse (step 0)
 

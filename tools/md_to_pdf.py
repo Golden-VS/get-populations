@@ -14,6 +14,7 @@ GEBRUIK:
 
 import re
 import sys
+import textwrap
 from html import escape
 
 from reportlab.lib import colors
@@ -137,15 +138,10 @@ def build(md_path, pdf_path):
             flow.append(Paragraph(inline(' '.join(buf)), S['quote']))
             continue
 
-        # bullet list
-        if re.match(r'^\s*[-*]\s+', ln):
-            items = []
-            while i < n and re.match(r'^\s*[-*]\s+', lines[i]):
-                items.append(ListItem(Paragraph(inline(re.sub(r'^\s*[-*]\s+', '', lines[i])),
-                                                S['body']), leftIndent=12))
-                i += 1
-            flow.append(ListFlowable(items, bulletType='bullet', start='•',
-                                     leftIndent=10))
+        # list (ordered "1." or unordered "- "), incl. nested code blocks
+        if re.match(r'^\s*(?:[-*]|\d+\.)\s+', ln):
+            block, i = _render_list(lines, i, S)
+            flow.append(block)
             continue
 
         # horizontal rule
@@ -163,7 +159,7 @@ def build(md_path, pdf_path):
         buf = [ln]
         i += 1
         while i < n and lines[i].strip() and not re.match(
-                r'^(#{1,3}\s|>|\s*[-*]\s|\s*\||```)', lines[i]):
+                r'^(#{1,3}\s|>|\s*(?:[-*]|\d+\.)\s|\s*\||\s*```)', lines[i]):
             buf.append(lines[i])
             i += 1
         flow.append(Paragraph(inline(' '.join(buf)), S['body']))
@@ -173,6 +169,72 @@ def build(md_path, pdf_path):
                             topMargin=1.6 * cm, bottomMargin=1.6 * cm,
                             title='Account Enrichment - Manual')
     doc.build(flow)
+
+
+_ITEM_RE = re.compile(r'^(\s*)(?:[-*]|(\d+)\.)\s+(.*)$')
+
+
+def _render_list(lines, i, S):
+    """Rendert een geordende (1.) of ongeordende (-) lijst, inclusief
+    eventuele code-blokken en vervolg-alinea's binnen een item."""
+    n = len(lines)
+    base = _ITEM_RE.match(lines[i])
+    base_indent = len(base.group(1))
+    ordered = base.group(2) is not None
+    items = []
+    while i < n:
+        m = _ITEM_RE.match(lines[i])
+        if not m or len(m.group(1)) != base_indent:
+            break
+        first = m.group(3)
+        i += 1
+        cont = []
+        while i < n and lines[i].strip():
+            mm = _ITEM_RE.match(lines[i])
+            if mm and len(mm.group(1)) == base_indent:
+                break  # volgende item op hetzelfde niveau
+            cont.append(lines[i])
+            i += 1
+        items.append(_item_body(first, cont, S))
+
+    list_items = [ListItem(body, leftIndent=16) for body in items]
+    flow = ListFlowable(
+        list_items,
+        bulletType='1' if ordered else 'bullet',
+        start='1' if ordered else '•',
+        leftIndent=14, bulletFontName='Helvetica',
+        bulletFontSize=9.5, spaceBefore=2, spaceAfter=6,
+    )
+    return flow, i
+
+
+def _item_body(first, cont, S):
+    """Bouwt de flowables voor een lijst-item: tekst-alinea's met daartussen
+    eventueel een code-blok (fenced ```)."""
+    flows = []
+    text = [first] if first.strip() else []
+
+    def flush():
+        if text:
+            flows.append(Paragraph(inline(' '.join(t.strip() for t in text)), S['body']))
+            text.clear()
+
+    j = 0
+    while j < len(cont):
+        if cont[j].lstrip().startswith('```'):
+            flush()
+            j += 1
+            code = []
+            while j < len(cont) and not cont[j].lstrip().startswith('```'):
+                code.append(cont[j])
+                j += 1
+            j += 1  # sluit-fence
+            flows.append(Preformatted(textwrap.dedent('\n'.join(code)) or ' ', S['code']))
+        else:
+            text.append(cont[j])
+            j += 1
+    flush()
+    return flows or [Paragraph('', S['body'])]
 
 
 def _table(header, rows, S):

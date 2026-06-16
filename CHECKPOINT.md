@@ -1,7 +1,7 @@
 # CRM Population Enrichment - Project Checkpoint
 
 > Handoff document for continuing this project in a fresh Claude Code session.
-> Last updated: 2026-06-11
+> Last updated: 2026-06-16
 
 ---
 
@@ -9,444 +9,268 @@
 
 - **GitHub repo**: https://github.com/Golden-VS/get-populations (owner: Golden-VS).
 - **Local working copy**: `/opt/cardano/cnode/claude-code/get-populations/` on
-  this machine (Linux, user `cardano`). Git is initialized, `origin` points
-  to the GitHub repo via SSH. Pushes authenticate via `~/.ssh/id_ed25519`
-  as GitHub user `Golden-VS`. `gh` CLI is NOT installed.
+  this Linux box (user `cardano`). `origin` points to the GitHub repo via SSH;
+  pushes authenticate via `~/.ssh/id_ed25519` as GitHub user `Golden-VS`.
+  `gh` CLI is NOT installed.
 - **Git author config**: `user.email = pixel.mastery@gmail.com`,
-  `user.name = Vahid Shypoorchian` (set globally). SSH key authenticates as
-  Golden-VS for push. Commits show that author email; GitHub attributes them
-  to Golden-VS via the push.
-- **Excluded from git via `.gitignore`**: `step1_classified.xlsx` (real CRM
-  data, ~6,000 records), other `.xlsx` outputs, `.claude/`, `reference/`
-  cache, `venv/`, common Python/editor noise.
+  `user.name = Vahid Shypoorchian` (global). No company-identifying info in
+  the repo (see "Privacy" below).
+- **`.gitignore` excludes**: `*.xlsx`, `*.csv` (all data + the DWH export +
+  caches), `logs/`, `.claude/`, `reference/`, `venv/`. So NO customer data,
+  account names, or run logs are ever pushed.
+- **Runs on Linux** in a `venv`. The pipeline scripts are pure Python; first
+  step-2 run downloads Wikidata/CBS reference data into `reference/` (cached).
+
+### Privacy (important, 2026-06-16)
+The repo must NOT be linkable to the customer's company. Verified clean:
+no company name in any tracked file, the committed PDF, any commit message,
+or commit author/email (only `pixel.mastery@gmail.com`). The company name +
+real emails appear ONLY in the two gitignored local data files
+(`full_input.csv`, `segment_cache.csv`) which are never pushed. Keep it that
+way: never hardcode the company name/email; the MANUAL uses generic example
+values (`jan.jansen@yourcompany.nl`).
 
 ---
 
 ## Project goal
 
-Yearly recurring task: populate the `cx_population` field for ~6,004 CRM
-accounts (Dynamics 365). The accounts are:
-- **Government entities** in NL, BE, DE, and the Caribbean (Aruba, Curacao,
-  Sint Maarten, Caribisch Nederland) that need their inhabitant count
-  filled from authoritative sources.
-- **Commercial entities** that should have an empty population field.
-- **Obsolete/marked entries** (with "niet gebruiken" / "do not use" in the
-  name) that should be skipped but keep their old value.
-
-The output drives reporting on customer reach and territory size.
+Yearly recurring task: for ~6,100 CRM accounts (Dynamics 365), add a
+**Segment** (organisation type) and a **population** (`cx_population`) for the
+government bodies among them. Accounts span NL, BE, DE and the Caribbean
+(Aruba/Curacao/Sint Maarten/Caribisch Nederland). Commercial accounts get no
+population. The output drives reporting on customer reach / territory size and
+is imported back into Dynamics.
 
 ---
 
-## Two-step pipeline
+## Pipeline (three chained scripts, all in the repo)
+
+Raw DWH export (`full_input.csv`, SSMS `SELECT * FROM [INT].[Account] WHERE
+statecode = 0`, UTF-8 BOM, literal "NULL" handled)
+-> `step1_classify.py`  -> `step1_classified.xlsx`  (+ detected_type/country)
+-> `step1b_segment.py`  -> `step1b_segmented.xlsx`  (+ Segment columns)
+-> `step2_enrich.py`    -> `final_enriched.xlsx`    (+ population columns)
+
+**Order matters**: step 2's input must be step 1b's OUTPUT so all columns
+accumulate into one final file. Each script writes a timestamped log to
+`logs/`. Operator runbook: `doc/MANUAL.md` (+ rendered `doc/MANUAL.pdf`).
 
 ### Step 1: Classify (`step1_classify.py`)
-**Status: COMPLETE; now IN THIS REPO** (since `f5687a8`, 2026-06-11; was
-Windows-only before). Input is `full_input.csv` straight from the DWH
-(SSMS "Save Results As" on [INT].[Account] WHERE statecode = 0; UTF-8 BOM
-and literal "NULL" strings handled). Current export: 6,118 records.
-Note vintage quirks vs older copies: emits 'samenwerking_nl' (older data
-had 'samenwerking'); downstream accepts both. Output feeds step 1b.
+COMPLETE, in repo. Name/address-based regex classifier -> `detected_type`
+(30 types), `detected_country`, `canonical_name`, confidence, proces. Free,
+instant, no network. CLI `--input/--output`. Note: this copy emits
+`samenwerking_nl` where an older vintage emitted `samenwerking`; downstream
+accepts both.
 
-### Step 1b: Segment (`step1b_segment.py`) - NEW since 2026-06-10
-**Status: FINISHED; full production run COMPLETED 2026-06-11** (cache
-covers all 6,118 records; re-runs are cache-only and free). Also added:
-'Segment (category)' column (Governmental/Non-profit/Commercial/Unknown,
-derived from Segment via SEGMENT_TO_CATEGORY + DTYPE_CATEGORY_OVERRIDES)
-and websearch idempotency (already-websearched weak results are not
-re-billed on re-runs; --refresh-segments forces a redo).
-
-Adds "Segment" and "Segment (detailed)" columns to the step1 output.
-Two layers:
-1. Deterministic: `TYPE_TO_SEGMENT` maps all 26 government/utility
-   detected_types to a (segment, detailed) pair. Free.
-2. Claude API (Anthropic SDK, default `claude-opus-4-7`, adaptive thinking,
-   structured outputs via `messages.parse` + Pydantic enum, prompt-cached
-   system prompt): classifies `onbekend` / `commercieel_of_overig` /
-   `gemeente_unclear` records (~3.7k) in batches of 25 using name, country,
-   city, address and the weak businesstype hint. A step1 "voorlopige
-   typering" hint is passed per record; known-commercial records can never
-   come back "Unknown" (fall back to segment `Commercial (other)`).
-3. Optional `--web-search` second pass: weak classifications (Unknown /
-   Commercial (other) / low confidence, including weak cached results) are
-   re-done in batches of 5 with the server-side `web_search_20260209` tool.
-
-Results cached in `segment_cache.csv` (gitignored - contains account names)
-keyed on accountid, invalidated on name change; cache saved per batch so
-interrupted runs resume. Override table supported. Taxonomy: 23 segments
-(government by administrative level + NACE-aligned commercial).
-Requires `pip install anthropic` and `ANTHROPIC_API_KEY`. User purchased
-$50 API credits (June 2026). Operator instructions: `doc/MANUAL.md`.
+### Step 1b: Segment (`step1b_segment.py`)
+FINISHED; full production run completed (cache covers all records). Adds
+`Segment`, `Segment (detailed)`, `Segment (category)`
+(Governmental/Non-profit/Commercial/Unknown), confidence, bron.
+- Layer 1: `TYPE_TO_SEGMENT` maps the 26 government/utility detected_types
+  deterministically (free).
+- Layer 2: Claude API (`claude-opus-4-7`, adaptive thinking, structured
+  outputs via `messages.parse` + Pydantic enum, prompt-cached system prompt)
+  classifies onbekend/commercieel/gemeente_unclear (~3.7k) in batches of 25;
+  known-commercial can never return "Unknown" (-> `Commercial (other)`).
+- Optional `--web-search`: weak results (Unknown/Commercial(other)/low conf)
+  re-done with the server-side `web_search_20260209` tool. Idempotent -
+  already-websearched results are NOT re-billed on re-runs (`--refresh-segments`
+  forces a redo).
+- Cache `segment_cache.csv` keyed on accountid, invalidated on name change,
+  saved per batch (interrupted runs resume). Override table supported.
+- Needs `ANTHROPIC_API_KEY` (API billed separately from any Claude.ai sub).
+  Customer bought $50 API credits.
 
 ### Step 2: Enrich (`step2_enrich.py`)
-**Status: HEAVILY REVISED in this session.** Pipeline robust to per-source
-failures. Several previously-broken sources now produce results.
-
-Key features (carried forward, unchanged):
-- Caches reference data in `reference/*.csv` (365-day cache).
-- Heartbeat log every 10s during long SPARQL queries.
-- Per-source try/except; partial failure does not abort the run.
-- Status report at end of fetch phase.
-- Override table support (account_id, population_override, reden).
-- "niet gebruiken" marker triggers skip.
-- Flags: `--test-mode`, `--offline`, `--refresh-cache`.
+RUN on the real export; the bugs that surfaced during that run are all fixed
+(see Session summary). Effectively production-ready; remaining gaps are the
+deferred v2 aggregation types (small record counts).
+- Reference data cached in `reference/*.csv` (365-day cache), per-source
+  try/except, heartbeat logs, "Status per bron" report.
+- `--test-mode`, `--offline`, `--refresh-cache`, `--overrides`, `--user-agent`.
 
 ---
 
-## Session summary
+## Session summary (newest first)
 
-Run `git log --oneline` for the full history. Highlights (newest first):
+Run `git log --oneline` for the complete list.
 
 | Commit | Topic |
 |---|---|
+| `53bac56` | md_to_pdf: ordered lists + nested code blocks (fixes step-0 PDF rendering) |
+| `0053c51` | MANUAL: fresh-box setup (~/get-populations, full deps), de-dup source sections, add `doc/MANUAL.pdf` + `tools/md_to_pdf.py` |
+| `aab2a4b` | MANUAL: lead with what-it-does intro + per-account-type source table |
+| `6a5e6e5` | Dissolved NL/BE gemeenten resolve to frozen last-known pop (Zwijndrecht BE case) |
+| `63fa4bd` | Wikipedia-title fallback for label-less reference rows (Zottegem case) |
+| `2d4c4c6` | `population_gewijzigd` review column (gewijzigd/gelijk/leeg) |
+| `9bf8961` | Fix crash on NaN date in aggregate_sum (cached-CSV roundtrip) |
+| `1997e6b` | Strict (>=92) name match for gemeente lookups; no weak-fuzzy overwrite |
+| `04dc15a` | DE same-name municipalities disambiguated via postal code (P281) |
 | `f6798e1` | CBS Gebieden fetcher: fresh NL numbers + auto veiligheidsregio mapping |
-| `6df26d4` | DE Verbandsgemeinden: direct-value table (Wikidata unusable) |
+| `6df26d4` | DE Verbandsgemeinden direct-value table (Q253019 was 'Ortsteil') |
 | `7d8bf9f` | DE Landkreise via district key P440 (44 -> 288) |
 | `2cc4378` | DE Gemeinden via AGS key P439, chunked per Bundesland (346 -> 11,418) |
 | `f5687a8` | step1_classify.py into repo + type-name harmonization |
-| `b036aba` | Timestamped file logging for all steps (logs/) |
-| `6e9febc` | Segment (category) column in step1b |
-| `56c63fe` | step1b_segment.py: Segment columns (Claude API) |
-| `1764a9a` | Waterschap direct values, sum-validated |
-| `9bd404e`..`017aa56` | earlier: dissolved filter, stadsdelen, BE provincies/politiezones, staleness column |
+| `b036aba` | Timestamped file logging for all steps |
+| earlier | step1b segment columns; waterschap/stadsdelen/politiezone tables; BE provincies fix; dissolved filter; staleness column |
 
 ---
 
-## Reference sources: current state
-
-Measured 2026-05-11 unless noted. `dissolved filter` = the global
-`FILTER NOT EXISTS { ?item wdt:P576 ?dissolved }` added in `9bd404e`.
-
-| Name | Q-ID | Active items | With P1082 | Status |
-|---|---|---|---|---|
-| `nl_gemeenten` | Q2039348 + CBS merge | 342 CBS (current, fresh) + ~800 Wikidata (historical names) | yes | OK. CBS rows win for current gemeenten (qid `CBS-86247NED` in bron); Wikidata rows keep historical names matchable (intentional). |
-| `nl_provincies` | Q134390 | 12 | 12 | OK. |
-| `be_gemeenten` | Q493522 | 565 (was 581) | full | OK, clean match. |
-| `be_provincies` | **Q83116** (was Q364356) | 10 | 10 | FIXED this session. |
-| `de_gemeinden` | AGS key **P439** (was Q262166), chunked per Bundesland | 11,418 | all | FIXED `2cc4378` (2026-06-11). Was 346: per-Bundesland subclasses made P31 useless. ~130k statements total, hence 16 chunks. |
-| `de_landkreise` | district key **P440** minus P439 (was Q106658) | 288 | all | FIXED `7d8bf9f` (2026-06-11). P439-exclusion keeps kreisfreie Staedte out (they live in de_gemeinden). Labels prefix-stripped via strip_name_prefix_re. |
-| `de_verbandsgemeinden` | REMOVED `6df26d4` | n/a | n/a | Root cause: Q253019 is 'Ortsteil' (70k items!), never the VG class. Correct Q23006 has 13/112 with P1082 and garbage memberships. Now a direct-value table (see below). |
-| `caribbean_countries` | (hardcoded VALUES) | 4 | 4 | OK. |
-
-### Sources REMOVED from `REFERENCE_SOURCES` this session
-
-These are NOT fetched from Wikidata anymore; they're handled by inline
-tables instead:
-
-| Old source | Why removed | Replacement |
-|---|---|---|
-| `nl_waterschappen` | Wikidata has 0 P1082 for any of 23 active items (Q702081) | `NL_WATERSCHAP_INWONERS` direct-value table (POPULATED, see below) |
-| `nl_stadsdelen` | Wikidata has 0 P1082 for 8 Amsterdam boroughs (Q15079751) | `NL_STADSDEEL_INWONERS` direct-value table |
-| `be_politiezones` | Wikidata has 0 P1082 for 176 zones (Q2621126) | `BE_POLITIEZONE_GEMEENTEN` aggregation (173/176 from NL Wikipedia) |
-| `de_verbandsgemeinden` | Q253019 was 'Ortsteil' (wrong class); real class Q23006 has 13/112 with P1082, fragmentary memberships | `DE_VERBANDSGEMEINDE_INWONERS` direct-value table (15 CRM VGs, DE Wikipedia infoboxes, peildatum 2024) |
-
----
-
-## Inline mapping tables in `step2_enrich.py`
-
-| Table | Type | Status |
-|---|---|---|
-| `NL_VEILIGHEIDSREGIO_GEMEENTEN` | sum-of-gemeenten | FALLBACK ONLY since `f6798e1`: the complete 25-region mapping is auto-built from CBS at run time |
-| `NL_OMGEVINGSDIENST_GEMEENTEN` | sum-of-gemeenten | partial (5 diensten populated) - PRE-EXISTING |
-| `DE_VERBANDSGEMEINDE_INWONERS` | direct value | **POPULATED** (`6df26d4`) - 15 CRM VGs from DE Wikipedia infoboxes, peildatum 2024; 17/17 CRM records resolve incl. one typo via fuzzy |
-| `NL_WATERSCHAP_INWONERS` | direct value | **POPULATED** (`1764a9a`) - 21 waterschappen, websearched from own sites/Wikipedia 2026-06-11, sum-validated at 98% of NL population. Replaced the never-filled NL_WATERSCHAP_GEMEENTEN stub |
-| `NL_STADSDEEL_INWONERS` | direct value | **POPULATED** - 8 Amsterdam stadsdelen, both `X` and `Amsterdam-X` keys, peildatums 2020-2022 from NL Wikipedia infoboxes (`c3ad5e4`) |
-| `BE_POLITIEZONE_GEMEENTEN` | sum-of-gemeenten | **POPULATED** - 173/176 zones extracted from NL Wikipedia list (`3b307cf`) |
+## How each account type gets its population (step 2)
 
 `enrich_record` dispatches by `detected_type`:
-- `veiligheidsregio`, `omgevingsdienst` -> aggregate NL gemeenten
-- `waterschap` -> direct lookup in `NL_WATERSCHAP_INWONERS`
-- `stadsdeel`, `deelgemeente` -> direct lookup in `NL_STADSDEEL_INWONERS`
-- `politiezone` -> aggregate BE gemeenten via `BE_POLITIEZONE_GEMEENTEN`
-- Everything else -> direct fuzzy match against the appropriate Wikidata
-  reference list per `TYPE_TO_REFERENCE`.
+
+| Type(s) | Method | Source |
+|---|---|---|
+| `gemeente_nl` | direct fuzzy match | CBS current-year (merged into nl_gemeenten) + Wikidata historical fallback |
+| `gemeente_be` | direct fuzzy match | Wikidata `be_gemeenten` (Q493522) |
+| `ocmw`, `agb` | match to their gemeente | Wikidata `be_gemeenten` |
+| `gemeinde_de` | direct fuzzy match + **postcode tiebreak** | Wikidata via AGS key P439 (chunked per Bundesland) |
+| `provincie_nl` / `provincie_be` | direct | Wikidata `nl_provincies` (Q134390) / `be_provincies` (Q83116) |
+| `landkreis`, `landratsamt` | direct / match to Landkreis | Wikidata via district key P440 |
+| `land` (Caribbean) | direct | Wikidata country totals (hardcoded VALUES) |
+| `veiligheidsregio` | sum of member gemeenten | mapping auto-built from CBS (25 regions); inline table is fallback |
+| `omgevingsdienst` | sum of member gemeenten | `NL_OMGEVINGSDIENST_GEMEENTEN` (partial, 5/~30) |
+| `politiezone` | sum of member gemeenten | `BE_POLITIEZONE_GEMEENTEN` (173/176, from NL Wikipedia) |
+| `waterschap` | direct value | `NL_WATERSCHAP_INWONERS` (21, own websites; sum-validated ~98% of NL) |
+| `stadsdeel`, `deelgemeente` | direct value | `NL_STADSDEEL_INWONERS` (8 Amsterdam, NL Wikipedia) |
+| `verbandsgemeinde` | direct value | `DE_VERBANDSGEMEINDE_INWONERS` (15 CRM VGs, DE Wikipedia, peildatum 2024) |
+| `NO_POPULATION_TYPES` | none (stays empty) | commercieel, ministerie, rijksoverheid, stadtwerke, intercommunale, caw, zweckverband, fod_be |
+| `UNSUPPORTED_AGGREGATION` | none yet (keeps old value) | samenwerking(_nl), belastingsamenwerking, hulpverleningszone, ggd, stadsregio, amt, verwaltungsgemeinschaft |
+
+### Reference sources (Wikidata/CBS), measured 2026-06-12
+| Name | Key | Items | Notes |
+|---|---|---|---|
+| `nl_gemeenten` | Q2039348 + CBS merge | 342 CBS (fresh, qid `CBS-86247NED`) + ~800 Wikidata historical | CBS wins for current; Wikidata keeps historical names matchable |
+| `nl_gemeenten_historisch` | Q2039348 + P576 EXISTS | 242 | dissolved NL gemeenten, exact-name-only fallback |
+| `be_gemeenten` | Q493522 | 559 | label fallback applied (see below) |
+| `be_gemeenten_historisch` | Q493522 + P576 EXISTS | 22 | dissolved BE gemeenten, exact-name-only fallback |
+| `nl_provincies` / `be_provincies` | Q134390 / Q83116 | 12 / 10 | OK |
+| `de_gemeinden` | AGS P439, 16 Bundesland chunks | 11,418 | also fetches P281 postcodes (98%) for same-name tiebreak |
+| `de_landkreise` | P440 minus P439 | 288 | "Landkreis "/"Kreis " prefix stripped from labels |
+| `caribbean_countries` | hardcoded VALUES | 4 | OK |
 
 ---
 
-## Open work items (priority order)
+## Robustness fixes applied during the real step-2 run (2026-06-12)
 
-### 1. Waterschap populations - RESOLVED (`1764a9a`, 2026-06-11)
-
-Final approach: direct values in `NL_WATERSCHAP_INWONERS`, websearched
-per waterschap from own websites/Wikipedia, validated by the sum check
-(21 waterschappen tile the country: 17.73M vs ~18.1M NL inhabitants).
-
-Investigation that led here (so nobody re-treads it):
-- Wikidata: 0 P1082; 0 gemeente->waterschap links.
-- Wikipedia: prose only, no structured member lists, infoboxes only
-  have area.
-- CBS: NO waterschap classification anywhere (boundaries don't follow
-  gemeente borders) - all 8 CBS waterschap tables are financial.
-- WAVES (waves.databank.nl, Unie van Waterschappen): data exists behind
-  a JS dashboard; no fetchable API found; main site 403s bots.
-- Aggregator overheidinnederland.nl publishes provably wrong inhabitant
-  numbers (2.8-3.5M per waterschap) - never use it.
-
-Refresh strategy: re-check the source URLs every 1-2 years; numbers
-drift ~1%/yr at most.
-
-### 1b. CBS "Gebieden in Nederland" fetcher - RESOLVED (`f6798e1`, 2026-06-11)
-
-Built: `fetch_cbs_gebieden()` auto-discovers the newest yearly edition
-in the CBS catalog (no manual table-ID switch), resolves per-edition
-field names via DataProperties, merges 342 current-gemeente populations
-into nl_gemeenten (CBS wins, Wikidata keeps historical names) and
-auto-builds the complete 25-region veiligheidsregio mapping. CBS outage
-degrades gracefully to Wikidata + inline table. Alias "'s-Gravenhage"
--> "Den Haag" included. The `ggd` v2 type could reuse the same table
-(GGD-regio column exists) - still open under item 5.
-
-### 2. DE Verbandsgemeinden - RESOLVED (`6df26d4`, 2026-06-11)
-
-Root cause: Q253019 was 'Ortsteil' (70k items), never the VG class -
-hence the truncated responses. Correct class Q23006 is unusable (13/112
-with P1082; P150/P131 memberships fragmentary, partial sums would be
-confidently wrong). Now: `DE_VERBANDSGEMEINDE_INWONERS` direct-value
-table, 15 CRM VGs from DE Wikipedia infoboxes (Landesamt figures,
-peildatum 2024). 17/17 CRM records resolve. New VGs in future exports
-show "niet in tabel" in proces -> add one dict line.
-
-### 3. DE Gemeinde under-count - RESOLVED (`2cc4378`, 2026-06-11)
-
-Q262166 found 346 because each Bundesland has its own subclasses.
-Now fetched via the AGS municipality key (P439), chunked per Bundesland
-(first two AGS digits; ~130k statements total would truncate in one
-response): 11,418 municipalities with population. de_landkreise
-similarly fixed via P440-minus-P439 (`7d8bf9f`): 288 districts,
-label prefixes stripped. Duplicate municipality names across states
-(486 names, 55 CRM records affected) are RESOLVED via postal-code
-disambiguation (`04dc15a`, 2026-06-12): P281 postcodes fetched per
-gemeinde (98% coverage), fuzzy_match picks the candidate whose postcode
-matches the CRM record's; 52/52 resolvable cases hit exact 5/5, the 3
-records without a CRM postcode are flagged "LET OP" in proces.
-
-### 4. NL gemeenten over-count - user wants historical KEPT (design decision)
-
-CHECKPOINT-prior framing was "filter to current only". User reconsidered
-during this session: if the CRM has an old gemeente name, look up that
-old gemeente's last-known population (not the new merged entity).
-Reasoning: the CRM names are what they are; honest staleness with a
-correct peildatum beats silent re-mapping to a different population.
-
-Current code already does this for ~99% of cases: most historical NL
-gemeenten don't have `P576` set in Wikidata, so the dissolved filter
-doesn't exclude them. The `data_leeftijd_jaren` column (added in
-`017aa56`) surfaces stale matches per row.
-
-EDGE RESOLVED (`1997e6b`, 2026-06-12): gemeente lookups now require
-FUZZY_HIGH_THRESHOLD (STRICT_MATCH_TYPES) because those lists are
-complete - absent name = doesn't exist (anymore) = keep old CRM value.
-User's insight: a dissolved gemeente's population is frozen and needs
-no update, so no-match is the correct outcome; the bug was the weak
-fuzzy overwrite. Blocked 6 real wrong matches (Bussum->Brunssum,
-Winschoten->Linschoten, Hoeselt->Herselt x2, Freiburg->Freiberg,
-Froendenberg->Rodenberg). 6 legit typo-level matches (85-91) now keep
-the old value instead - handle via overrides file if fresh values are
-wanted. Surviving 92-99 matches carry a "LET OP" proces marker.
-FOLLOW-UP (`Zwijndrecht BE` case, 2026-06-12): dissolved NL/BE gemeenten
-now resolve via nl/be_gemeenten_historisch companion sources (P576
-EXISTS variant of the template; 242 NL + 22 BE rows) - exact-name-only
-fallback in enrich_record, bron marked "opgeheven gemeente". Bussum
-gets its frozen 2010 value; the Brunssum fuzzy trap stays closed.
-
-NOT YET DONE but discussed: per-source dissolved filter (off for
-`nl_gemeenten`, on for `be_gemeenten`) so that even `P576`-tagged old
-NL gemeenten survive and can be matched. Would require capturing the
-dissolution date in the dataframe and adding an `is_historisch`
-column. Optional polish; revisit if user wants more visibility.
-
-### 5. v2 aggregation tables (deferred)
-
-Still unsupported (returns "vereist mapping-tabel (volgt in v2)"):
-- `samenwerking_nl` (~23 records: GR/GRSK/ISD/RSD/RUD/Werkplein/etc.)
-- `belastingsamenwerking` (~5 records)
-- `hulpverleningszone` (BE fire/medical zones)
-- `ggd` (NL GGD regions)
-- `stadsregio`
-- `amt` (DE)
-- `verwaltungsgemeinschaft` (DE)
-
-Each needs `{region_name: [member_gemeente_names, ...]}` per the same
-pattern as `NL_VEILIGHEIDSREGIO_GEMEENTEN`. User will prioritize which
-to build.
+1. **NaN date crash** (`9bf8961`): empty `date` from a cached CSV reads back
+   as NaN (float, truthy) and crashed year-slicing in `aggregate_sum`. Guard
+   now requires a non-empty string. (Trigger: Merelbeke-Melle, a 2025-merged
+   BE gemeente with no peildatum.)
+2. **Label-less reference rows** (`63fa4bd`): Wikidata items with no label in
+   our language chain make the label service return the bare Q-ID as the name
+   -> the row exists but is unmatchable. Both SPARQL templates now also fetch
+   the Wikipedia article title (nl/de wiki) and `parse_sparql_to_dataframe`
+   substitutes it. Rescued 5 BE (incl. Zottegem, Charleroi) + 28 DE rows.
+3. **DE same-name disambiguation** (`04dc15a`): 486 German municipality names
+   recur; `fuzzy_match` now takes the CRM postcode and picks the candidate
+   whose P281 postcode best-prefix-matches. 52/52 CRM collisions resolved at
+   5/5; unresolved ones get a "LET OP" proces marker.
+4. **Strict gemeente matching** (`1997e6b`): gemeente lists are complete, so a
+   missing name = doesn't exist -> keep old CRM value (NOT a weak fuzzy match).
+   STRICT_MATCH_TYPES require score >=92. Blocked 6 real wrong matches
+   (Bussum->Brunssum, Winschoten->Linschoten, Hoeselt->Herselt x2, etc.).
+   92-99 matches carry a "LET OP" marker.
+5. **Dissolved-gemeente fallback** (`6a5e6e5`): when the current list misses,
+   try `*_historisch` companion with EXACT name only -> dissolved gemeenten
+   (Bussum, Zwijndrecht BE) get their frozen last-known population, bron marked
+   "opgeheven gemeente", while the Brunssum fuzzy trap stays closed.
 
 ---
 
-## Output schema additions
+## Output columns added (step 2)
 
-`data_leeftijd_jaren` (int or None): years between run date and
-`peildatum_inwoners`. High values (5+) flag stale population data.
-Helper: `data_leeftijd_jaren(peildatum_str)` at module level. Added
-in `017aa56`. Slotted between `peildatum_inwoners` and `bron` in the
-output column order.
-
-All other output columns unchanged from prior CHECKPOINT.
+- `previous_population` - old CRM value before this run.
+- `population_gewijzigd` - `gewijzigd` / `gelijk` / `leeg` (numeric compare
+  of cx_population vs previous_population). run_log tab shows the total.
+- `data_leeftijd_jaren` - years between run date and peildatum (high = stale).
+- `bron`, `proces`, `peildatum_inwoners`, `match_score`, `invuldatum`.
+  `cx_population` is updated in place (CRM-import-ready); never blanked.
+- Review filters: `proces` "geen match"/"niet in" = misses; `proces` "LET OP"
+  = unresolved name collision / non-exact match; `population_gewijzigd` =
+  what would change in the CRM.
 
 ---
 
-## SPARQL template change (commit `9bd404e`)
+## Open work items
 
-`_sparql_population_template()` now includes:
+All "broken source" items are RESOLVED. Remaining:
 
-```sparql
-FILTER NOT EXISTS { ?item wdt:P576 ?dissolved }
-```
+1. **Final review of `final_enriched.xlsx`** with the user (the run works; was
+   iterating on individual "geen match" cases - Zottegem, Zwijndrecht - which
+   are now fixed). Suggested: after a clean run, the user filters `proces` on
+   "geen match" / "LET OP" and pastes the remaining names for one-pass triage.
+2. **v2 aggregation tables** (~70 records, keep old value today):
+   `samenwerking(_nl)`, `belastingsamenwerking`, `hulpverleningszone`,
+   `ggd` (could reuse the CBS table's GGD-regio column - cheap), `stadsregio`,
+   `amt`, `verwaltungsgemeinschaft`. Each needs `{region: [gemeenten]}` like
+   `NL_VEILIGHEIDSREGIO_GEMEENTEN`. User-driven priority.
+3. **Manual: Dynamics 365 import section** (placeholder exists in MANUAL).
+4. **Optional**: `omgevingsdienst` mapping is only 5/~30 filled.
 
-Measured 2026-05-11 effect:
-- `be_gemeenten`: 581 -> 565 (matches reality).
-- `nl_gemeenten`: 1,575 -> 1,316 (partial; many historical NL gemeenten
-  lack `P576`).
+---
 
-If we decide to keep historical NL gemeenten in the dataset (see open
-item #5), this filter would become per-source (off for `nl_gemeenten`,
-on for `be_gemeenten`).
+## Tooling / docs
+
+- `doc/MANUAL.md` - operator runbook. Opens with "what this does" + a
+  per-account-type source table, then step 0 (DWH export) -> setup -> steps
+  1/1b/2 -> corrections -> yearly refresh -> maintenance playbook.
+- `doc/MANUAL.pdf` - rendered "marked up" view, regenerate with:
+  `python tools/md_to_pdf.py doc/MANUAL.md doc/MANUAL.pdf`
+- `tools/md_to_pdf.py` - pure-Python markdown->PDF (markdown + reportlab, no
+  system libs). Handles headings, pipe tables, fenced code, ordered/unordered
+  lists incl. code nested in list items.
+- `doc/PROJECT_OVERVIEW.md` - non-technical one-pager.
+
+### Dependencies
+Runtime: `pandas openpyxl anthropic requests rapidfuzz`. PDF tooling
+(dev only): `markdown reportlab` (+ `pypdf` for verification). Python 3.10+.
 
 ---
 
 ## User context and preferences
 
-- Dutch native speaker. Code comments mostly Dutch where intent;
-  English for standard library / pandas terms.
-- Avoid em-dashes (the typographic - character) in user-facing output.
-- For coding tasks: deliver one step at a time when there are multiple,
-  so user can test/validate before continuing.
-- Casual but technically precise. Don't be blindly agreeable.
+- Dutch native speaker. Code comments mostly Dutch; English for stdlib/pandas.
+- Avoid em-dashes in user-facing output.
+- Deliver/commit one scoped change at a time, push individually for review.
+- Don't be blindly agreeable; be technically precise.
 - `cx_businesstype` is unreliable; name + address are authoritative.
-- User runs Windows / PowerShell / Python 3.13.3, venv in project folder.
-- User wants commits scoped narrowly and pushed individually for review.
-- User prefers REUSING existing patterns over adding new HTTP sources
-  unless accuracy requires it.
+- Prefers reusing existing patterns over new HTTP sources unless accuracy
+  requires it.
+- Municipality accuracy matters most: 85% of revenue comes from municipalities,
+  so gemeente correctness was prioritized (strict matching, postcode tiebreak,
+  dissolved fallback all driven by that).
+- The pipeline runs on this Linux box; the MANUAL is written so a fresh box
+  can be set up from scratch (`git clone` into `~/get-populations`).
 
 ---
 
-## File layout (in this repo)
+## Useful recipes
 
-```
-get-populations/
-|- .gitignore
-|- CHECKPOINT.md                  <- this file
-|- step1b_segment.py              <- segmentation (Segment columns, Claude API)
-|- step2_enrich.py                <- population enrichment
-`- doc/
-   |- PROJECT_OVERVIEW.md         <- non-technical summary
-   `- MANUAL.md                   <- operator runbook (living document)
+### Re-run a single reference source after a fix
+Delete its `reference/<name>.csv`, then run step 2 (not `--offline`); only
+that source re-downloads. Transient Wikidata 502s auto-retry.
 
-NOT in this repo (excluded by .gitignore: *.xlsx, segment_cache.csv):
-- step1_classified.xlsx           (real CRM data; also runs on Linux now)
-- step1b_segmented.xlsx           (segmentation output)
-- step2_enriched.xlsx             (enrichment output)
-- segment_cache.csv               (classification cache, contains account names)
-- reference/*.csv                 (Wikidata cache; rebuilt on first run)
-- .claude/                        (local Claude Code settings)
-- venv/                           (Python virtualenv, exists on Linux server)
-```
-
-`step1_classify.py` and the Windows setup README (`step2_README.md`) live
-on the user's machine but are NOT in this repo (so the user's local
-workspace has more files than git).
-
----
-
-## Dependencies
-
-```
-pandas
-openpyxl
-requests
-rapidfuzz
-anthropic     (step1b only; needs ANTHROPIC_API_KEY)
-```
-
-No exotic packages. Python 3.10+. A future CBS fetcher (open item #1b)
-needs no new packages (plain OData via `requests`).
-
----
-
-## How to test / continue
-
-### To re-run after a Q-ID fix
-1. Delete the affected CSV from `reference/` so it gets re-downloaded.
-2. Run with full command (not `--offline`):
-   ```
-   python step2_enrich.py --input step1_classified.xlsx --output test.xlsx \
-       --test-mode --user-agent "user@example.com"
-   ```
-3. Check the "Status per bron" report at the end.
-
-### Test mode discipline
-Always run with `--test-mode` first (100 records) before doing a full run.
-
-### To test a Wikidata candidate Q-ID directly
-Paste the SPARQL from `_sparql_population_template()` with the candidate
-Q-ID into https://query.wikidata.org/. Check:
-- Completes in <60 seconds.
-- Returns expected count.
-- Items have `P1082` statements.
-
-A faster shell-side check used during this session:
+### Test a Wikidata candidate quickly (shell)
 ```sh
 UA='get-populations/1.0 (you@example.com)'
 curl -sG 'https://query.wikidata.org/sparql' \
-  -H 'Accept: application/sparql-results+json' \
-  -H "User-Agent: $UA" \
+  -H 'Accept: application/sparql-results+json' -H "User-Agent: $UA" \
   --data-urlencode 'query=SELECT (COUNT(DISTINCT ?item) AS ?n) WHERE {
-    ?item wdt:P31 wd:Q83116 .
-    FILTER NOT EXISTS { ?item wdt:P576 ?d }
-  }'
+    ?item wdt:P31 wd:Q83116 . FILTER NOT EXISTS { ?item wdt:P576 ?d } }'
 ```
 
-### To extract structured data from a Wikipedia article (pattern used
-this session for `BE_POLITIEZONE_GEMEENTEN`)
-Use the Wikipedia API for raw wikitext, not WebFetch (WebFetch's
-summarization hallucinated tail entries):
+### Extract a Wikipedia list as wikitext (NOT WebFetch - it hallucinates tails)
 ```sh
 curl -sG 'https://nl.wikipedia.org/w/api.php' \
-  --data-urlencode 'action=parse' \
-  --data-urlencode 'page=Lijst van politiezones in Belgie' \
-  --data-urlencode 'prop=wikitext' \
-  --data-urlencode 'format=json' \
-  --data-urlencode 'redirects=true' \
-  -o raw.json
+  --data-urlencode 'action=parse' --data-urlencode 'page=...' \
+  --data-urlencode 'prop=wikitext' --data-urlencode 'format=json' \
+  --data-urlencode 'redirects=true' -o raw.json
 ```
-Then parse `data['parse']['wikitext']['*']` in Python. Top-level bullets
-starting with `* ` are current entries; nested `** ` and `<s>...</s>`
-strikethrough are historical (skip them).
+Top-level `* ` bullets = current; nested `** ` / `<s>` = historical (skip).
 
----
-
-## What to do next (in priority order)
-
-All "broken source" items are now RESOLVED (waterschap, stadsdelen,
-BE provincies/politiezones, DE gemeinden/landkreise/verbandsgemeinden,
-CBS fetcher). Remaining:
-
-1. **Run the full step 2 chain** on the fresh export:
-   `step2_enrich.py --input step1b_segmented.xlsx --output
-   final_enriched.xlsx --user-agent "..."` (test-mode first), then
-   review with the user: proces misses, data_leeftijd outliers,
-   previous_population diffs. See doc/MANUAL.md section 5.
-2. **v2 aggregation tables** (~70 records: samenwerking_nl,
-   belastingsamenwerking, omgevingsdienst 5/30, amt,
-   verwaltungsgemeinschaft; `ggd` could reuse the CBS table's GGD-regio
-   column). User-driven prioritization.
-3. **Optional polish**: Dynamics 365 import section in the manual.
-   (DE name collisions: solved via postcode `04dc15a`; P576/weak-fuzzy
-   edge: solved via strict gemeente matching `1997e6b`.)
-
----
-
-## Decisions made this session (for context)
-
-- Treat `waterschap`, `stadsdeel`/`deelgemeente`, and `politiezone` as
-  separate code paths from the standard Wikidata reference-list lookup,
-  because Wikidata has 0 `P1082` coverage for all three classes.
-- For `politiezone`: reuse existing `aggregate_sum` pattern with
-  `be_gemeenten` (have to pass `ref_data` through `enrich_record` so the
-  branch can pick out `be_gemeenten`; done).
-- For `stadsdeel`: simple direct-value table since stadsdelen are
-  *subdivisions* of one gemeente, not aggregations of multiple.
-- Mapping-table sources DURING THIS SESSION: NL Wikipedia article
-  wikitext via the Wikipedia API (`action=parse&prop=wikitext`). Do NOT
-  rely on WebFetch's summarization for large tables - it hallucinates.
-- For waterschap, the same Wikipedia approach FAILED (no structured
-  member-gemeenten lists exist there) - which is why open item #1 is
-  blocked on the user's choice between CBS / PDOK / accept-stub.
+### Standing offer to the user
+After a step-2 run, they paste remaining "geen match" / "LET OP" account
+names; triage each as (a) fixable source pattern, (b) genuinely no data ->
+overrides file, or (c) dissolved/obsolete -> keep-old-value is correct.

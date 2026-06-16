@@ -77,7 +77,7 @@ relatively few accounts; see the maintenance section for how to add them.
 5. Right-click the results grid, choose **"Save Results As..."** and save
    as `full_input.csv`.
 6. Copy `full_input.csv` to the project folder on the Linux server
-   (`/opt/cardano/cnode/claude-code/get-populations/`).
+   (`~/get-populations/`, see one-time setup below).
 
 The scripts read this CSV directly (UTF-8 with BOM, `NULL` text values are
 handled). If disabled records accidentally end up in the export, step 1
@@ -146,18 +146,26 @@ API usage are two different wallets.
 
 ---
 
-## 0. One-time setup (already done on the Linux server)
+## 0. One-time setup (first time on a machine)
+
+This assumes a fresh Linux box with `git` and `python3` installed and
+nothing of this project yet. We install everything under the home
+directory (`~/get-populations`); no root access is needed.
 
 ```bash
-cd /opt/cardano/cnode/claude-code/get-populations
+# 1. get the code from GitHub
+cd ~
+git clone https://github.com/Golden-VS/get-populations.git
+cd get-populations
 
-# create Python environment and install dependencies (once)
+# 2. create a Python environment and install all dependencies
 python3 -m venv venv
 source venv/bin/activate
-pip install pandas openpyxl anthropic
+pip install pandas openpyxl anthropic requests rapidfuzz
 ```
 
-Set the Anthropic API key (from console.anthropic.com, where the credits live):
+Set the Anthropic API key (from console.anthropic.com, where the credits
+live - only step 1b needs it):
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -169,10 +177,11 @@ To avoid retyping it every session, store it once in your shell profile:
 echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.bashrc
 ```
 
-Before every working session, activate the environment first:
+Before every working session, go to the folder and activate the
+environment first:
 
 ```bash
-cd /opt/cardano/cnode/claude-code/get-populations
+cd ~/get-populations
 source venv/bin/activate
 ```
 
@@ -311,21 +320,24 @@ Create e.g. `overrides_population.xlsx` with columns:
 and run with `--overrides overrides_population.xlsx`. Overrides win over
 every automatic lookup.
 
-### How the population values are sourced
+### How the population values are sourced (technical / maintenance view)
 
-Step 2 uses four methods, depending on the type of organisation:
+The table at the very top of this manual lists the source **per account
+type**. This section is the maintenance view: the four underlying
+**mechanisms** behind those sources and **where each lives in the code**,
+so you know what to touch when something needs updating.
 
-| Method | Used for | Where it lives |
+| Mechanism | How it works | Where in the code |
 |---|---|---|
-| **1. Wikidata lookup** - downloads reference lists with populations from Wikidata (free, no key), fuzzy-matches account names against them. German municipalities with the same name (486 names occur more than once) are told apart using the account's **postal code**. Dissolved/merged NL and BE gemeenten (e.g. Zwijndrecht BE, merged 2025) get their frozen last-known population via an exact-name fallback list | BE gemeenten and provincies, NL provincies, DE Gemeinden (via municipality key, per Bundesland), DE Landkreise (via district key), Caribbean countries, and *historical* NL gemeente names | `REFERENCE_SOURCES` in `step2_enrich.py`; downloads cached in `reference/*.csv` |
-| **1b. CBS open data** - the official "Gebieden in Nederland" table gives every *current* NL gemeente a current-year population plus its veiligheidsregio. The fetcher auto-discovers the newest yearly edition, so the annual table change needs no manual step | Current NL gemeenten (fresher than Wikidata); also feeds the veiligheidsregio mapping for method 2 | `fetch_cbs_gebieden()` in `step2_enrich.py`; cached in `reference/cbs_gebieden.csv` |
-| **2. Sum of member gemeenten** - the entity's population = the sum of the municipalities it covers | BE politiezones (173 zones), NL veiligheidsregio's (mapping auto-built from CBS, all 25 regions) and omgevingsdiensten (partially filled) | `BE_POLITIEZONE_GEMEENTEN`, `NL_OMGEVINGSDIENST_GEMEENTEN` tables in `step2_enrich.py`; veiligheidsregio mapping comes from CBS at run time (inline table is the fallback) |
-| **3. Direct-value tables** - hand-collected numbers with a source URL per entry, used where Wikidata has no data at all | NL waterschappen (21, from their own websites), Amsterdam stadsdelen (8, NL Wikipedia), DE Verbandsgemeinden (15, DE Wikipedia) | `NL_WATERSCHAP_INWONERS`, `NL_STADSDEEL_INWONERS`, `DE_VERBANDSGEMEINDE_INWONERS` tables in `step2_enrich.py` |
-| **4. Manual override** - corrections file, always wins | Any record | `--overrides` file (see above) |
+| **1. Wikidata lookup** | Downloads reference lists with populations from Wikidata (free, no key) and fuzzy-matches account names. Same-name German municipalities are told apart by postal code; dissolved NL/BE gemeenten fall back to a frozen last-known figure via an exact-name list. | `REFERENCE_SOURCES` in `step2_enrich.py`; cached in `reference/*.csv` |
+| **2. CBS open data** | The official "Gebieden in Nederland" table - current-year NL gemeente figures, and the veiligheidsregio membership used by mechanism 3. Auto-discovers the newest yearly edition. | `fetch_cbs_gebieden()`; cached in `reference/cbs_gebieden.csv` |
+| **3. Sum of member gemeenten** | Entity population = sum of the gemeenten it covers (politiezones, veiligheidsregio's, omgevingsdiensten). | `BE_POLITIEZONE_GEMEENTEN`, `NL_OMGEVINGSDIENST_GEMEENTEN`; veiligheidsregio mapping from CBS at run time (inline table is the fallback) |
+| **4. Direct-value tables** | Hand-collected numbers with a source URL per entry, where no database has the data (waterschappen, Amsterdam stadsdelen, DE Verbandsgemeinden). | `NL_WATERSCHAP_INWONERS`, `NL_STADSDEEL_INWONERS`, `DE_VERBANDSGEMEINDE_INWONERS` |
+| **5. Manual override** | A corrections file that wins over everything. | `--overrides` file (see above) |
 
 If none of these produce a value, the old CRM value is kept (never blanked).
-Every output row's `bron` column says exactly which method and source
-produced its value.
+Every output row's `bron` column says exactly which source produced its
+value.
 
 ### When a source fails or looks wrong (yearly maintenance)
 

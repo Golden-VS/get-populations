@@ -208,6 +208,26 @@ All "broken source" items are RESOLVED. Remaining:
    `NL_VEILIGHEIDSREGIO_GEMEENTEN`. User-driven priority.
 3. **Manual: Dynamics 365 import section** (placeholder exists in MANUAL).
 4. **Optional**: `omgevingsdienst` mapping is only 5/~30 filled.
+5. **Upgrade step 2 with the official registers found for the TAM feature**
+   (researched 2026-10-26; do this AFTER the whitespace/TAM feature). These
+   replace hand-built tables and close most of item 2 and item 4:
+   - **DE**: Destatis GV-ISys quarterly extract (`AuszugGV<Q>QAktuell.xlsx`,
+     free, ARS-keyed). Has 16 Laender, 401 Kreise (294 Landkreise + 107
+     kreisfreie Staedte, which our P440-minus-P439 Wikidata query misses),
+     1,202 Gemeindeverbaende (Aemter, Samtgemeinden, Verbandsgemeinden,
+     Verwaltungsgemeinschaften) and 10,747 current Gemeinden with population.
+     Higher levels = sum of Gemeinden by ARS prefix. Would replace the noisy
+     11,418-row Wikidata `de_gemeinden` (includes dissolved Gemeinden and
+     gemeindefreie Gebiete) and fill `amt` / `verwaltungsgemeinschaft` /
+     `verbandsgemeinde` exactly.
+   - **NL**: organisaties.overheid.nl `exportOO.xml` (nightly, CC-BY). 438
+     active gemeenschappelijke regelingen with member gemeenten as TOOI
+     `gmXXXX` codes (= CBS codes). Fills `samenwerking_nl`,
+     `belastingsamenwerking`, `omgevingsdienst`, `ggd` by member sum.
+   - **BE (Flanders)**: ABB OrganisatiePortaal PublicCacheGraphDump (daily,
+     N-Triples). Politiezones, hulpverleningszones, OCMW, AGB and
+     intergemeentelijke verenigingen with member gemeenten + KBO numbers.
+     Fills `hulpverleningszone` and can replace `BE_POLITIEZONE_GEMEENTEN`.
 
 ---
 

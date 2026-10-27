@@ -100,6 +100,45 @@ def test_op_without_kept_orgs_is_not_ok_and_counts_bad_lines(tmp_path):
     assert '2 onleesbare' in st.message
 
 
+_GEM = ('<http://ex.org/org/{id}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> '
+        '<http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.\n'
+        '<http://ex.org/org/{id}> <http://www.w3.org/2004/02/skos/core#prefLabel> """{label}""".\n'
+        '<http://ex.org/org/{id}> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/gemeente>.\n'
+        '<http://ex.org/org/{id}> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/{status}>.\n')
+_EVENT = ('<http://ex.org/ce/{id}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> '
+          '<http://www.w3.org/ns/org#ChangeEvent>.\n'
+          '<http://ex.org/ce/{id}> <http://www.w3.org/ns/org#originalOrganization> <http://ex.org/org/{orig}>.\n'
+          '<http://ex.org/ce/{id}> <http://www.w3.org/ns/org#resultingOrganization> <http://ex.org/org/{res}>.\n')
+_DATE = ('<http://ex.org/ce/{id}> <http://purl.org/dc/terms/date> '
+         '"""{date}"""^^<http://www.w3.org/2001/XMLSchema#dateTime>.\n')
+
+
+def test_op_merged_gemeenten_become_predecessor_aliases(tmp_path):
+    # F3: opgeheven gemeente met precies een actieve opvolger -> alias naar de opvolger
+    extra = (
+        _DATE.format(id='1', date='2025-01-01T00:00:00')            # Oudgem -> Alfadorp
+        + _GEM.format(id='g4', label='Alfadorp (voor fusie)', status='inactief')
+        + _EVENT.format(id='4', orig='g4', res='g1')                 # eigen naam: geen alias
+        + _GEM.format(id='g5', label='Sint-Betadorp', status='inactief')
+        + _EVENT.format(id='5', orig='g5', res='g1')                 # botst met andere gemeente
+        + _GEM.format(id='g6', label='Splitdorp', status='inactief')
+        + _EVENT.format(id='6', orig='g6', res='g1')
+        + _EVENT.format(id='7', orig='g6', res='g2')                 # twee opvolgers: geen alias
+        + _GEM.format(id='g7', label='Oudveld', status='inactief')
+        + _EVENT.format(id='8', orig='g7', res='g1')                 # zonder datum: geen jaar
+    )
+    nt = tmp_path / 'op.nt'
+    nt.write_text(OP_FIXTURE.read_text(encoding='utf-8') + extra, encoding='utf-8')
+    b = parse_op_dump(nt, GEMEENTEN)
+    pred = b.aliases[b.aliases.reason.str.startswith('predecessor')]
+    assert sorted(map(tuple, pred[['alias_name', 'entity_id', 'reason']].values)) == [
+        ('Oudgem', 'BE-NIS-11001', 'predecessor, merged 2025'),
+        ('Oudveld', 'BE-NIS-11001', 'predecessor'),
+    ]
+    assert set(pred.country) == {'BE'}
+    assert '2 voorganger-aliassen' in b.status[0].message
+
+
 # ---- W/B ----
 
 def test_flemish_nis_rule():

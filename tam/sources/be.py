@@ -43,7 +43,8 @@ OP-dump (parse_op_dump / load_be_op)
     lidmaatschap  org:Membership met org:organization (de samenwerking), org:member (het lid)
                   en org:role -> skos:prefLabel 'participant' | 'stichtend lid' | 'gerelateerd'
                   | 'bedienend'; alleen de eerste twee zijn lidmaatschappen
-    fusies        org:ChangeEvent met org:originalOrganization -> org:resultingOrganization
+    fusies        org:ChangeEvent met org:originalOrganization -> org:resultingOrganization en
+                  dct:date (bv. '2025-01-01T00:00:00'; ontbreekt bij een deel van de events)
   Actieve aantallen per soort (2026-10-27): Gemeente 304 (285 Vlaams + 19 Brussels), OCMW 285,
   Provincie 5, Politiezone 98, Hulpverleningszone 20, Autonoom gemeentebedrijf 159, District 10
   (Antwerpen incl. Borsbeek), Projectvereniging 61, Dienstverlenende vereniging 25,
@@ -51,6 +52,10 @@ OP-dump (parse_op_dump / load_be_op)
   Leden: welzijnsverenigingen hebben vooral OCMW's als lid (-> de gemeente met dezelfde
   NIS-code); 113 lidmaatschappen wijzen naar een opgeheven gemeente (fusie 2025) en worden
   via de ChangeEvents naar de fusiegemeente (rechtsopvolger) doorgezet.
+  Voorgangers: elke opgeheven gemeente met precies een actieve opvolger wordt een alias
+  ('predecessor, merged <jaar>'), behalve als de oude naam (zonder '(voor fusie)') gelijk is
+  aan een huidige entiteitsnaam (botsingsregel zoals in aliases.py). Op 2026-10-27: 34
+  opgeheven gemeenten (fusies 2019 en 2025).
 
 W/B (load_be_wb)
   Politiezones: step2_enrich.BE_POLITIEZONE_GEMEENTEN (173 zones), zonder elke zone met een
@@ -410,6 +415,7 @@ _P = {
     '<http://www.w3.org/ns/org#role>': 'role',
     '<http://www.w3.org/ns/org#originalOrganization>': 'original',
     '<http://www.w3.org/ns/org#resultingOrganization>': 'resulting',
+    '<http://purl.org/dc/terms/date>': 'date',
 }
 _T_ORG = 'http://data.vlaanderen.be/ns/besluit#Bestuurseenheid'
 _T_MEMBERSHIP = 'http://www.w3.org/ns/org#Membership'
@@ -540,11 +546,15 @@ def parse_op_dump(nt_path: Path, gemeenten: pd.DataFrame, source_date: str = '')
     source_date = source_date or date.today().isoformat()
 
     successors: dict[str, list[str]] = defaultdict(list)
+    merge_year: dict[str, str] = {}   # opgeheven organisatie -> jaar van het (laatste) event
     for ev in [s for s, t in g.types.items() if _T_CHANGE in t]:
+        year = g.one('date', ev)[:4]
         for orig in g.p['original'].get(ev, []):
             for res in g.p['resulting'].get(ev, []):
                 if res != orig:
                     successors[orig].append(res)
+                    if year.isdigit():
+                        merge_year[orig] = max(merge_year.get(orig, year), year)
 
     orgs = [s for s, t in g.types.items() if _T_ORG in t]
     kept = {s: KIND_BY_CLASS[g.cls(s)] for s in orgs if g.cls(s) in KIND_BY_CLASS and g.active(s)}
@@ -647,6 +657,37 @@ def parse_op_dump(nt_path: Path, gemeenten: pd.DataFrame, source_date: str = '')
             members[(eid, r[0])] = {'entity_id': eid, 'member_entity_id': r[0], 'member_kind': r[1],
                                     'membership_type': 'cooperation', 'join_date': ''}
 
+    # Voorgangers (F3): opgeheven gemeente met precies een actieve opvolger -> alias naar de
+    # opvolger; niet als de oude naam een huidige entiteitsnaam is (botsingsregel aliases.py)
+    current_names: dict[str, set[str]] = defaultdict(set)
+    for key, eids in index.items():
+        current_names[key].update(eids)
+    for row in rows:
+        current_names[name_key(row['name'])].add(row['entity_id'])
+    for s in orgs:
+        if g.cls(s) in ('gemeente', 'provincie') and g.active(s):
+            current_names[name_key(g.label(s))].add('')
+    n_pred = n_pred_collision = 0
+    for s in orgs:
+        if g.cls(s) != 'gemeente' or g.active(s):
+            continue
+        cur = follow(s)
+        eid = gemeente_id(cur) if cur is not None else None
+        label = re.sub(r'\s*\([^)]*\)\s*$', '', g.label(s)).strip()
+        if eid is None or not label:
+            continue
+        owners = current_names.get(name_key(label), set())
+        if owners:
+            n_pred_collision += eid not in owners
+            continue
+        year = merge_year.get(s, '')
+        aliases.append({'alias_name': label, 'country': 'BE', 'entity_id': eid,
+                        'reason': f'predecessor, merged {year}' if year else 'predecessor'})
+        n_pred += 1
+    if n_pred_collision:
+        log.warning('OP: %d voorgangers niet als alias opgenomen: naam botst met een huidige entiteit',
+                    n_pred_collision)
+
     # KBO-nummers van gemeenten en provincies als id-patch op de Wikidata-entiteiten
     patches = {}
     for s in orgs:
@@ -686,6 +727,7 @@ def parse_op_dump(nt_path: Path, gemeenten: pd.DataFrame, source_date: str = '')
     counts = bundle.entities['kind'].value_counts().to_dict() if len(rows) else {}
     msg = (', '.join(f'{v} {k}' for k, v in sorted(counts.items())) +
            f'; {len(members)} lidmaatschappen, {len(patches)} KBO-patches, '
+           f'{n_pred} voorganger-aliassen, '
            f'{len(set(unresolved))} niet gekoppeld, {g.stats["bad"]} onleesbare statements')
     log.info('OP: %s', msg)
     bundle.status.append(SourceStatus('be_op', True, len(rows), source_date, msg))

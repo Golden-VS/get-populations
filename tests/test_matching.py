@@ -1,5 +1,10 @@
-import pandas as pd
+import re as _re
 
+import pandas as pd
+import pytest
+
+from tam import matching as mt
+from tam.ai import AIBatchError, AIRefusal, CostCapReached, CostTracker
 from tam.entities import ALIAS_COLUMNS, ENTITY_COLUMNS, new_entity
 from tam.matching import (
     MATCH_COLUMNS, TYPE_TO_KINDS, UNMATCHED_COLUMNS, apply_overrides, build_name_index,
@@ -512,3 +517,244 @@ def test_override_unknown_id_logs_error(caplog):
     assert warnings[0].startswith('FOUT:')
     errors = [r for r in caplog.records if r.levelname == 'ERROR']
     assert len(errors) == 1 and 'E-UNKNOWN' in errors[0].getMessage()
+
+
+# ---------- pass 2 (AI) ----------
+
+_BLOCK_RE = _re.compile(r'^volgnummer (\d+)\n  crm-naam: (.*)$', _re.MULTILINE)
+
+
+class FakeMatch:
+    """Nep voor call_parsed: kiest per CRM-naam een vaste entity_id (standaard de eerste kandidaat)."""
+
+    def __init__(self, choose=None, exc=None):
+        self.choose = choose or {}
+        self.exc = list(exc or [])
+        self.calls = []
+
+    def __call__(self, client, tracker, **kw):
+        self.calls.append(kw)
+        if self.exc:
+            exc = self.exc.pop(0)
+            if exc is not None:
+                raise exc
+        items = []
+        for block in _re.split(r'\n(?=volgnummer \d+\n)', kw['user']):
+            m = _BLOCK_RE.search(block)
+            if not m:
+                continue
+            n, name = int(m.group(1)), m.group(2)
+            first = _re.search(r'^    (\S+) \| ', block, _re.MULTILINE)
+            entity_id = self.choose.get(name, first.group(1) if first else 'none')
+            items.append(mt.MatchItem(volgnummer=n, entity_id=entity_id, reason='zelfde gemeente',
+                                      confidence='high'))
+        return mt.MatchBatch(items=items)
+
+    def names(self, call):
+        return [m.group(2) for m in _BLOCK_RE.finditer(self.calls[call]['user'])]
+
+
+@pytest.fixture
+def fake_ai(monkeypatch):
+    def _p(fake):
+        monkeypatch.setattr(mt, 'call_parsed', fake)
+        return fake
+    return _p
+
+
+def _p2_entities():
+    entities = ents(
+        dict(entity_id='NL-CBS-GM1942', name='Gooise Meren', country='NL', kind='nl_gemeente',
+             region='Noord-Holland'),
+        dict(entity_id='NL-CBS-GM0002', name='Utrecht', country='NL', kind='nl_gemeente'),
+        dict(entity_id='NL-CBS-GM0003', name='Aadorp', country='NL', kind='nl_gemeente'),
+        dict(entity_id='NL-CBS-GM0004', name='Bedorp', country='NL', kind='nl_gemeente'),
+        dict(entity_id='NL-CBS-GM0005', name='Cedorp', country='NL', kind='nl_gemeente'),
+    )
+    alias_frame = aliases({'alias_name': 'Bussum', 'country': 'NL', 'entity_id': 'NL-CBS-GM1942',
+                           'reason': 'predecessor, merged 2016'})
+    return entities, alias_frame
+
+
+def run_pass2(frame, tmp_path, *, use_ai=True, batch_size=20, tracker=None, entities=None):
+    default_entities, alias_frame = _p2_entities()
+    entities = default_entities if entities is None else entities
+    scope, _ = crm_in_scope(frame)
+    return mt.pass2(scope, entities, alias_frame, object(), tracker or CostTracker(50),
+                    use_ai=use_ai, cache_path=tmp_path / 'match_cache.csv', batch_size=batch_size)
+
+
+def _reasons(unmatched):
+    return dict(zip(unmatched['accountid'], unmatched['reason']))
+
+
+def test_no_candidate_no_ai_call(tmp_path, fake_ai):
+    fake = fake_ai(FakeMatch())
+    matched, unmatched, stats = run_pass2(crm(dict(name='Qwxyz Holding')), tmp_path)
+    assert fake.calls == []
+    assert len(matched) == 0
+    assert list(unmatched.columns) == UNMATCHED_COLUMNS
+    row = unmatched.iloc[0]
+    assert row['reason'] == 'geen kandidaat boven drempel'
+    assert row['best_candidate'] == ''
+    assert row['tam_country'] == 'NL'
+    assert stats['no_candidate'] == 1
+
+
+def test_ai_match_columns_and_prompt(tmp_path, fake_ai):
+    fake = fake_ai(FakeMatch())
+    frame = crm(dict(name='Gemeente Bussum', canonical_name='Bussum', detected_type='gemeente_nl',
+                     cx_address3_postalcode='1401 AA', cx_address3_city='Bussum'))
+    matched, unmatched, stats = run_pass2(frame, tmp_path)
+    assert list(matched.columns) == MATCH_COLUMNS
+    assert matched.iloc[0].to_dict() == {
+        'entity_id': 'NL-CBS-GM1942', 'accountid': 'acc-0', 'crm_name': 'Gemeente Bussum',
+        'match_pass': 'ai', 'match_reason': 'zelfde gemeente', 'confidence': 'high'}
+    assert len(unmatched) == 0
+    user = fake.calls[0]['user']
+    assert 'type: gemeente_nl' in user
+    assert '1401 AA' in user and 'Bussum' in user and 'land: NL' in user
+    assert ('NL-CBS-GM1942 | Gooise Meren | nl_gemeente | Noord-Holland |  | '
+            'alias: Bussum, predecessor, merged 2016') in user
+    system = fake.calls[0]['system']
+    for word in ('OCMW', 'Ortsgemeinde', 'none', 'Stadtwerke', 'GmbH'):
+        assert word in system
+    assert fake.calls[0]['output_model'] is mt.MatchBatch
+    assert stats['ai_matched'] == 1
+
+
+def test_ai_choice_outside_candidates_rejected(tmp_path, fake_ai, caplog):
+    fake = fake_ai(FakeMatch(choose={'Gemeente Bussum': 'NL-CBS-GM0002'}))  # Utrecht: geen kandidaat
+    frame = crm(dict(name='Gemeente Bussum', canonical_name='Bussum', detected_type='gemeente_nl'))
+    with caplog.at_level('WARNING', logger='tam.matching'):
+        matched, unmatched, stats = run_pass2(frame, tmp_path)
+    assert len(fake.calls) == 1
+    assert len(matched) == 0
+    assert _reasons(unmatched) == {'acc-0': 'AI: geen passende organisatie'}
+    assert unmatched.iloc[0]['best_candidate'] == 'Gooise Meren'
+    assert unmatched.iloc[0]['best_score'] == 100
+    assert any('NL-CBS-GM0002' in r.getMessage() for r in caplog.records)
+    assert stats['invalid_id'] == 1
+
+
+def test_ai_none_is_unmatched_and_cached(tmp_path, fake_ai):
+    fake_ai(FakeMatch(choose={'Gemeente Bussum': 'none'}))
+    frame = crm(dict(name='Gemeente Bussum', canonical_name='Bussum', detected_type='gemeente_nl'))
+    matched, unmatched, _ = run_pass2(frame, tmp_path)
+    assert len(matched) == 0
+    assert _reasons(unmatched) == {'acc-0': 'AI: geen passende organisatie'}
+    fake2 = fake_ai(FakeMatch())
+    _, unmatched2, stats2 = run_pass2(frame, tmp_path)
+    assert fake2.calls == []
+    assert _reasons(unmatched2) == {'acc-0': 'AI: geen passende organisatie'}
+    assert stats2['cached'] == 1
+
+
+def test_cache_reused_when_name_and_candidates_same(tmp_path, fake_ai):
+    frame = crm(dict(name='Gemeente Bussum', canonical_name='Bussum', detected_type='gemeente_nl'))
+    fake_ai(FakeMatch())
+    first, _, _ = run_pass2(frame, tmp_path)
+    cache = pd.read_csv(tmp_path / 'match_cache.csv', dtype=str, keep_default_na=False)
+    assert list(cache.columns) == ['accountid', 'name', 'candidate_hash', 'entity_id', 'reason',
+                                   'confidence', 'datum']
+    assert list(cache['entity_id']) == ['NL-CBS-GM1942']
+
+    fake2 = fake_ai(FakeMatch())
+    second, _, stats = run_pass2(frame, tmp_path)
+    assert fake2.calls == []
+    assert stats['cached'] == 1
+    assert second.to_dict('records') == first.to_dict('records')
+
+    # andere kandidatenset (extra entiteit) -> opnieuw naar AI
+    entities, _ = _p2_entities()
+    extra = ents(dict(entity_id='NL-X-1', name='Bussum Noord', country='NL', kind='nl_samenwerking'))
+    fake3 = fake_ai(FakeMatch())
+    run_pass2(frame, tmp_path, entities=pd.concat([entities, extra], ignore_index=True))
+    assert len(fake3.calls) == 1
+    assert 'NL-X-1 | Bussum Noord' in fake3.calls[0]['user']
+
+    # andere naam -> opnieuw naar AI
+    renamed = crm(dict(name='Gemeente Bussum (oud)', canonical_name='Bussum',
+                       detected_type='gemeente_nl'))
+    fake4 = fake_ai(FakeMatch())
+    run_pass2(renamed, tmp_path)
+    assert len(fake4.calls) == 1
+
+
+def _three_accounts():
+    return crm(dict(name='Gemeente Aadorp'), dict(name='Gemeente Bedorp'),
+               dict(name='Gemeente Cedorp'))
+
+
+def test_cap_reached_leaves_rest_unmatched(tmp_path, fake_ai):
+    fake = fake_ai(FakeMatch(exc=[None, CostCapReached('plafond')]))
+    matched, unmatched, stats = run_pass2(_three_accounts(), tmp_path, batch_size=1)
+    assert len(fake.calls) == 2
+    assert matched_ids(matched) == {'acc-0': 'NL-CBS-GM0003'}
+    assert _reasons(unmatched) == {'acc-1': 'kostenplafond bereikt',
+                                   'acc-2': 'kostenplafond bereikt'}
+    cache = pd.read_csv(tmp_path / 'match_cache.csv', dtype=str, keep_default_na=False)
+    assert list(cache['accountid']) == ['acc-0']
+    assert stats['cap'] == 2
+
+
+def test_failed_batch_marked_and_next_batch_runs(tmp_path, fake_ai):
+    fake = fake_ai(FakeMatch(exc=[AIBatchError('kapot')]))
+    matched, unmatched, stats = run_pass2(_three_accounts(), tmp_path, batch_size=2)
+    assert len(fake.calls) == 2
+    assert matched_ids(matched) == {'acc-2': 'NL-CBS-GM0005'}
+    assert _reasons(unmatched) == {'acc-0': 'AI-fout', 'acc-1': 'AI-fout'}
+    cache = pd.read_csv(tmp_path / 'match_cache.csv', dtype=str, keep_default_na=False)
+    assert list(cache['accountid']) == ['acc-2']  # fouten worden niet gecachet
+    assert stats['failed'] == 2
+
+
+def test_refused_batch_marked_and_not_cached(tmp_path, fake_ai):
+    fake_ai(FakeMatch(exc=[AIRefusal('nee')]))
+    matched, unmatched, _ = run_pass2(_three_accounts(), tmp_path, batch_size=2)
+    assert _reasons(unmatched) == {'acc-0': 'AI weigerde', 'acc-1': 'AI weigerde'}
+    assert matched_ids(matched) == {'acc-2': 'NL-CBS-GM0005'}
+    cache = pd.read_csv(tmp_path / 'match_cache.csv', dtype=str, keep_default_na=False)
+    assert list(cache['accountid']) == ['acc-2']
+
+
+def test_gov_priority_batches_first(tmp_path, fake_ai):
+    fake = fake_ai(FakeMatch())
+    commercial = {'Segment (category)': 'Commercial', 'segment_confidence': 'low'}
+    frame = crm(dict(name='Gemeente Aadorp', **commercial), dict(name='Gemeente Bedorp'),
+                dict(name='Gemeente Cedorp', **commercial), dict(name='Gemeente Bussum'))
+    run_pass2(frame, tmp_path, batch_size=2)
+    assert fake.names(0) == ['Gemeente Bedorp', 'Gemeente Bussum']
+    assert fake.names(1) == ['Gemeente Aadorp', 'Gemeente Cedorp']
+
+
+def test_no_ai_skips_calls_but_uses_cache(tmp_path, fake_ai):
+    fake_ai(FakeMatch())
+    run_pass2(crm(dict(name='Gemeente Aadorp')), tmp_path)
+    fake = fake_ai(FakeMatch())
+    matched, unmatched, stats = run_pass2(_three_accounts(), tmp_path, use_ai=False)
+    assert fake.calls == []
+    assert matched_ids(matched) == {'acc-0': 'NL-CBS-GM0003'}
+    assert _reasons(unmatched) == {'acc-1': 'AI overgeslagen (--no-ai)',
+                                   'acc-2': 'AI overgeslagen (--no-ai)'}
+    cache = pd.read_csv(tmp_path / 'match_cache.csv', dtype=str, keep_default_na=False)
+    assert list(cache['accountid']) == ['acc-0']
+    assert stats['to_ai'] == 2
+
+
+def test_pass2_pending_counts_accounts_needing_ai(tmp_path, fake_ai):
+    entities, alias_frame = _p2_entities()
+    frame = crm(dict(name='Gemeente Aadorp'), dict(name='Qwxyz Holding'), dict(name='Gemeente Bedorp'))
+    scope, _ = crm_in_scope(frame)
+    index = build_name_index(entities, alias_frame)
+    by_country = entities_by_country(entities, alias_frame)
+    assert mt.pass2_pending(scope, by_country, index) == 2
+    fake_ai(FakeMatch())
+    run_pass2(crm(dict(name='Gemeente Aadorp')), tmp_path)
+    assert mt.pass2_pending(scope, by_country, index, cache_path=tmp_path / 'match_cache.csv') == 1
+
+
+def test_estimate_matching_cost():
+    # 2 batches x (6000 x $4 + 2500 x $20) / 1e6 = 2 x 0.074
+    assert mt.estimate_matching_cost(21) == pytest.approx(0.148)
+    assert mt.estimate_matching_cost(0) == 0

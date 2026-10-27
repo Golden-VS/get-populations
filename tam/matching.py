@@ -1,19 +1,25 @@
-"""CRM-scope, kandidaten, regelgebaseerde matching (pass 1) en overrides.
+"""CRM-scope, kandidaten, regelgebaseerde matching (pass 1), AI-matching (pass 2) en overrides.
 
-Pass 2 (AI) gebruikt `candidates()` en `entities_by_country()` uit deze module.
+Pass 2 gebruikt `candidates()` en `entities_by_country()`; `pass2_pending()` en
+`estimate_matching_cost()` geven de CLI het aantal AI-accounts en de kostenschatting vooraf.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
+from pydantic import BaseModel
 from rapidfuzz import fuzz, process
 
 from step2_enrich import _plz_prefix_score, normalize
-from tam.config import CRM_COUNTRY_TO_TAM
+from tam.ai import AIBatchError, AIRefusal, CostCapReached, call_parsed, estimate_cost
+from tam.config import CRM_COUNTRY_TO_TAM, REFERENCE_DIR
 
 log = logging.getLogger(__name__)
 
@@ -451,6 +457,283 @@ def candidates(row, entities_by_country, index, k=10) -> list[dict]:
                 fuzzy[entity_id] = {**info[entity_id], 'score': score, 'via': prep.vias[pos]}
     ranked = sorted(fuzzy.values(), key=lambda c: (-c['score'], -closeness(c['entity_id'])))[:k]
     return (exact + ranked)[:MAX_CANDIDATES]
+
+
+# ---------- pass 2 (AI) ----------
+
+MATCH_CACHE_COLUMNS = ['accountid', 'name', 'candidate_hash', 'entity_id', 'reason',
+                       'confidence', 'datum']
+NONE_ID = 'none'
+REASON_NO_CANDIDATE = 'geen kandidaat boven drempel'
+REASON_AI_NONE = 'AI: geen passende organisatie'
+REASON_NO_AI = 'AI overgeslagen (--no-ai)'
+REASON_CAP = 'kostenplafond bereikt'
+REASON_REFUSED = 'AI weigerde'
+REASON_FAILED = 'AI-fout'
+# Grove schatting per batch van 20 accounts met ~10 kandidaten (invoer incl. systeemprompt, uitvoer)
+EST_IN_TOKENS_PER_BATCH = 6000
+EST_OUT_TOKENS_PER_BATCH = 2500
+
+MATCH_SYSTEM_PROMPT = """Je bent een analist overheidsdata. Je koppelt CRM-accounts (klantrecords
+uit een CRM-systeem) aan officiele overheidsorganisaties in Nederland, Belgie en Duitsland.
+Namen kunnen Nederlands, Frans, Duits of Engels zijn.
+
+Elk account heeft een volgnummer, de CRM-naam, het door een eerdere stap herkende type,
+adres/postcode/plaats en land, plus een lijst kandidaten in de vorm
+"id | naam | soort | regio | postcode | via". "via" zegt hoe de kandidaat gevonden is:
+"naam" (op de eigen naam) of "alias: <naam>, <reden>" (bv. een voorganger of een lid).
+
+Kies per account precies een kandidaat-id uit de lijst van DAT account, of "none".
+
+REGELS:
+- Gebruik alleen ids uit de kandidatenlijst van dat account; verzin nooit een id.
+- Een OCMW/CPAS, of een afdeling, dienst of bedrijf-in-eigen-beheer van een gemeente
+  (bv. Burgerzaken, Bürgeramt, Stadtverwaltung, Fachbereich), hoort bij die gemeente.
+- Een Duitse Ortsgemeinde die in een Amt, Verbandsgemeinde, Samtgemeinde of
+  Verwaltungsgemeinschaft zit, hoort bij dat Amt/Verband; die staat dan als
+  alias-kandidaat in de lijst.
+- Een voorgangergemeente (opgegaan in een fusie) hoort bij haar opvolger; die staat als
+  alias-kandidaat met de fusiereden in de lijst.
+- Let op de soort: "Veiligheidsregio Zeeland" is niet de provincie Zeeland, een
+  Landkreis is niet de gelijknamige Stadt. Kies de kandidaat waarvan de soort past bij
+  de organisatie in de CRM-naam; gebruik postcode en regio om gelijke namen te scheiden.
+- Commerciele bedrijven (Stadtwerke, GmbH, AG, B.V., NV, BV, SA) zijn "none", tenzij het
+  account echt de overheidsorganisatie zelf is.
+- Scholen, ziekenhuizen, verenigingen, stichtingen en andere organisaties die geen van
+  de kandidaten zijn: "none".
+- Twijfel je tussen twee kandidaten, kies dan de beste en geef confidence "low".
+- "reason": korte reden (hooguit ~10 woorden), bv. "predecessor municipality, merged 2016",
+  "department of", "OCMW van de gemeente", "Ortsgemeinde im Amt", "duplicate account",
+  "commercial company".
+- "confidence": "high" = zeker, "medium" = waarschijnlijk, "low" = twijfel.
+- Geef voor elk volgnummer in de invoer precies een antwoord terug, met hetzelfde volgnummer.
+"""
+
+
+class MatchItem(BaseModel):
+    volgnummer: int
+    entity_id: str
+    reason: str
+    confidence: Literal['high', 'medium', 'low']
+
+
+class MatchBatch(BaseModel):
+    items: list[MatchItem]
+
+
+def estimate_matching_cost(n_accounts: int, batch_size: int = 20) -> float:
+    """Geschatte AI-kosten (USD) voor n_accounts die naar pass 2 gaan."""
+    return estimate_cost(n_accounts, batch_size, EST_IN_TOKENS_PER_BATCH, EST_OUT_TOKENS_PER_BATCH)
+
+
+def candidate_hash(cands: list[dict]) -> str:
+    """sha1 van de gesorteerde kandidaat-ids (cache-sleutel naast de naam)."""
+    return hashlib.sha1(';'.join(sorted(c['entity_id'] for c in cands)).encode('utf-8')).hexdigest()
+
+
+def _load_match_cache(path) -> dict[str, dict]:
+    """accountid -> cacherij; onleesbaar of oud schema = lege cache (met waarschuwing)."""
+    if path is None or not Path(path).exists():
+        return {}
+    try:
+        df = pd.read_csv(path, dtype=str, keep_default_na=False)
+        if list(df.columns) != MATCH_CACHE_COLUMNS:
+            raise ValueError(f'onverwachte kolommen {list(df.columns)}')
+    except Exception as e:
+        log.warning('Matchcache onleesbaar of oud schema, negeer cache: %s', e)
+        return {}
+    return {r['accountid']: r for r in df.to_dict('records')}
+
+
+def _save_match_cache(path, rows: dict[str, dict]) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(list(rows.values()), columns=MATCH_CACHE_COLUMNS).to_csv(path, index=False)
+
+
+def _cache_hit(cache: dict, accountid: str, name: str, chash: str) -> dict | None:
+    hit = cache.get(accountid)
+    if hit and hit['name'] == name and hit['candidate_hash'] == chash:
+        return hit
+    return None
+
+
+def pass2_pending(rest: pd.DataFrame, entities_by_country, index, *, cache_path=None) -> int:
+    """Aantal accounts dat pass 2 naar de AI zou sturen (voor de kostenschatting en --dry-run).
+
+    Telt accounts met minstens een kandidaat; met `cache_path` vallen geldige cachetreffers af.
+    """
+    cache = _load_match_cache(cache_path)
+    n = 0
+    for _, row in rest.iterrows():
+        cands = candidates(row, entities_by_country, index)
+        if not cands:
+            continue
+        if _cache_hit(cache, _text(row.get('accountid')), _text(row.get('name')),
+                      candidate_hash(cands)):
+            continue
+        n += 1
+    return n
+
+
+def _account_block(n: int, row, cands: list[dict]) -> str:
+    country = _text(row.get('tam_country'))
+    crm_country = _text(row.get('detected_country')).upper()
+    land = country if not crm_country or crm_country == country else f'{country} (CRM: {crm_country})'
+    lines = [
+        f'volgnummer {n}',
+        f"  crm-naam: {_text(row.get('name'))}",
+        f"  type: {_text(row.get('detected_type')) or 'onbekend'}",
+        f"  adres: {_text(row.get('address1_composite'))} | postcode: "
+        f"{_text(row.get('cx_address3_postalcode'))} | plaats: {_text(row.get('cx_address3_city'))}",
+        f'  land: {land}',
+        '  kandidaten (id | naam | soort | regio | postcode | via):',
+    ]
+    for c in cands:
+        lines.append('    ' + ' | '.join(_text(c.get(k)) for k in
+                                         ('entity_id', 'name', 'kind', 'region', 'postcode', 'via')))
+    return '\n'.join(lines)
+
+
+def build_match_message(items: list[tuple]) -> str:
+    """items: [(row, kandidaten)] in batchvolgorde; volgnummers 1..n."""
+    blocks = [_account_block(n, row, cands) for n, (row, cands) in enumerate(items, start=1)]
+    return ('Koppel elk account aan een kandidaat-id uit zijn eigen lijst, of "none".\n\n'
+            + '\n\n'.join(blocks))
+
+
+def pass2(rest: pd.DataFrame, entities, aliases, client, tracker, *, use_ai: bool,
+          cache_path: Path = REFERENCE_DIR / 'match_cache.csv', batch_size: int = 20,
+          index=None, by_country=None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """AI-matching van de accounts die pass 1 overliet -> (matched, unmatched, stats).
+
+    - Accounts zonder kandidaat gaan nooit naar de AI ('geen kandidaat boven drempel').
+    - Cache per accountid, alleen hergebruikt bij gelijke naam en kandidatenset; ook met
+      use_ai=False. Alleen echte AI-antwoorden (match of none) worden gecachet, nooit
+      fallbacks (weigering, fout, plafond, --no-ai, id buiten de lijst, ontbrekend antwoord).
+    - Batches: priority 'gov' eerst (stabiel), zodat een kostenplafond 'other' het laatst raakt.
+    - De cache wordt na elke batch weggeschreven.
+    `index`/`by_country` mogen voorberekend meegegeven worden (anders hier opgebouwd met aliassen).
+    stats['to_ai'] = aantal accounts dat (na cache) naar de AI moest, ook bij use_ai=False.
+    """
+    if index is None:
+        index = build_name_index(entities, aliases)
+    if by_country is None:
+        by_country = entities_by_country(entities, aliases)
+    cache = _load_match_cache(cache_path)
+    stats = {'no_candidate': 0, 'cached': 0, 'to_ai': 0, 'ai_matched': 0, 'ai_none': 0,
+             'invalid_id': 0, 'no_ai': 0, 'cap': 0, 'refused': 0, 'failed': 0, 'batches': 0}
+    results: dict[int, tuple[str, dict]] = {}  # positie in rest -> ('match'|'unmatched', rij)
+    pending = []  # (positie, row, kandidaten, hash)
+
+    def unmatched(pos, row, cands, reason):
+        best = cands[0] if cands else None
+        results[pos] = ('unmatched', {
+            'accountid': _text(row.get('accountid')), 'crm_name': _text(row.get('name')),
+            'tam_country': _text(row.get('tam_country')),
+            'best_candidate': best['name'] if best else '',
+            'best_score': best['score'] if best else None, 'reason': reason})
+
+    def matched(pos, row, entity_id, reason, confidence):
+        results[pos] = ('match', {
+            'entity_id': entity_id, 'accountid': _text(row.get('accountid')),
+            'crm_name': _text(row.get('name')), 'match_pass': 'ai', 'match_reason': reason,
+            'confidence': confidence})
+
+    for pos, (_, row) in enumerate(rest.iterrows()):
+        cands = candidates(row, by_country, index)
+        if not cands:
+            stats['no_candidate'] += 1
+            unmatched(pos, row, cands, REASON_NO_CANDIDATE)
+            continue
+        chash = candidate_hash(cands)
+        hit = _cache_hit(cache, _text(row.get('accountid')), _text(row.get('name')), chash)
+        if hit:
+            stats['cached'] += 1
+            if hit['entity_id'] == NONE_ID:
+                unmatched(pos, row, cands, REASON_AI_NONE)
+            else:
+                matched(pos, row, hit['entity_id'], hit['reason'], hit['confidence'])
+            continue
+        pending.append((pos, row, cands, chash))
+
+    # gov eerst; sorted() is stabiel
+    pending.sort(key=lambda p: _text(p[1].get('priority')) != 'gov')
+    stats['to_ai'] = len(pending)
+    log.info('Pass 2: %d accounts zonder kandidaat, %d uit cache, %d naar AI',
+             stats['no_candidate'], stats['cached'], len(pending))
+
+    if not use_ai:
+        for pos, row, cands, _ in pending:
+            unmatched(pos, row, cands, REASON_NO_AI)
+        stats['no_ai'] = len(pending)
+    else:
+        est = estimate_matching_cost(batch_size, batch_size)
+        for start in range(0, len(pending), batch_size):
+            batch = pending[start:start + batch_size]
+            user = build_match_message([(row, cands) for _, row, cands, _ in batch])
+            try:
+                parsed = call_parsed(client, tracker, system=MATCH_SYSTEM_PROMPT, user=user,
+                                     output_model=MatchBatch, estimated_cost=est)
+            except CostCapReached as e:
+                log.warning('Kostenplafond bereikt tijdens matching: %s; %d accounts niet gematcht',
+                            e, len(pending) - start)
+                for pos, row, cands, _ in pending[start:]:
+                    unmatched(pos, row, cands, REASON_CAP)
+                stats['cap'] = len(pending) - start
+                break
+            except AIRefusal as e:
+                log.warning('Matchbatch geweigerd (%d accounts): %s', len(batch), e)
+                for pos, row, cands, _ in batch:
+                    unmatched(pos, row, cands, REASON_REFUSED)
+                stats['refused'] += len(batch)
+                continue
+            except AIBatchError as e:
+                log.warning('Matchbatch mislukt (%d accounts): %s', len(batch), e)
+                for pos, row, cands, _ in batch:
+                    unmatched(pos, row, cands, REASON_FAILED)
+                stats['failed'] += len(batch)
+                continue
+            stats['batches'] += 1
+            answers: dict[int, MatchItem] = {}
+            for item in parsed.items:
+                answers.setdefault(item.volgnummer, item)
+            today = date.today().isoformat()
+            for n, (pos, row, cands, chash) in enumerate(batch, start=1):
+                accountid = _text(row.get('accountid'))
+                item = answers.get(n)
+                if item is None:
+                    log.warning('Matching: geen antwoord voor account %s (volgnummer %d)',
+                                accountid, n)
+                    unmatched(pos, row, cands, REASON_FAILED)
+                    stats['failed'] += 1
+                    continue
+                entity_id = item.entity_id.strip()
+                if entity_id.lower() == NONE_ID:
+                    unmatched(pos, row, cands, REASON_AI_NONE)
+                    stats['ai_none'] += 1
+                    entity_id = NONE_ID
+                elif entity_id not in {c['entity_id'] for c in cands}:
+                    log.warning('Matching: AI koos %s voor account %s, niet in de kandidatenlijst; '
+                                'behandeld als none', entity_id, accountid)
+                    unmatched(pos, row, cands, REASON_AI_NONE)
+                    stats['invalid_id'] += 1
+                    continue
+                else:
+                    matched(pos, row, entity_id, item.reason, item.confidence)
+                    stats['ai_matched'] += 1
+                cache[accountid] = {'accountid': accountid, 'name': _text(row.get('name')),
+                                    'candidate_hash': chash, 'entity_id': entity_id,
+                                    'reason': item.reason, 'confidence': item.confidence,
+                                    'datum': today}
+            _save_match_cache(cache_path, cache)
+
+    match_rows = [r for _, (kind, r) in sorted(results.items()) if kind == 'match']
+    unmatched_rows = [r for _, (kind, r) in sorted(results.items()) if kind == 'unmatched']
+    log.info('Pass 2: %d gematcht (AI of cache), %d niet gematcht (geweigerd %d, fout %d, '
+             'plafond %d, id buiten lijst %d)', len(match_rows), len(unmatched_rows),
+             stats['refused'], stats['failed'], stats['cap'], stats['invalid_id'])
+    return (pd.DataFrame(match_rows, columns=MATCH_COLUMNS),
+            pd.DataFrame(unmatched_rows, columns=UNMATCHED_COLUMNS), stats)
 
 
 # ---------- overrides ----------

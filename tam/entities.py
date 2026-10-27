@@ -51,7 +51,13 @@ class SourceBundle:
             frames = [f for f in (a, b) if len(f)]
             if not frames:
                 return a.copy()
-            return pd.concat(frames, ignore_index=True)
+            if len(frames) == 1:
+                return frames[0].reset_index(drop=True)
+            # Kolommen die in een frame volledig leeg (NA) zijn niet meenemen in de concat
+            # (pandas-3-gedrag rond dtypes); daarna de vaste kolomvolgorde herstellen
+            columns = list(dict.fromkeys(list(a.columns) + list(b.columns)))
+            trimmed = [f.dropna(axis=1, how='all') for f in frames]
+            return pd.concat(trimmed, ignore_index=True).reindex(columns=columns)
 
         extras = dict(self.extras)
         for key, value in other.extras.items():

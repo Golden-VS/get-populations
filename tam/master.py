@@ -36,6 +36,7 @@ class LoadContext:
     cache: object
     bundles: dict = field(default_factory=dict)
     merged: SourceBundle = field(default_factory=SourceBundle.empty)
+    warnings: list = field(default_factory=list)   # komen in extras['warnings']
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +103,9 @@ def _aliases(ctx):
     gv = ctx.bundles.get('de_gv')
     alias_ids = gv.extras.get('alias_ids', {}) if gv is not None else {}
     if gv is None:
-        log.warning('Voorgangers: DE GV ontbreekt; geen alias_ids voor Gemeinden in een Amt')
+        msg = 'Voorgangers: DE GV ontbreekt; geen alias_ids voor Gemeinden in een Amt'
+        log.warning(msg)
+        ctx.warnings.append(msg)
     return load_predecessors(ctx.cache, ctx.merged.entities, ctx.merged.aliases, alias_ids=alias_ids)
 
 
@@ -134,7 +137,7 @@ def _usable(bundle: SourceBundle) -> bool:
     return not (failed and len(bundle.entities) == 0)
 
 
-def _run_loaders(cache, loaders) -> tuple[SourceBundle, dict]:
+def _run_loaders(cache, loaders) -> LoadContext:
     ctx = LoadContext(cache)
     for spec in loaders:
         name, fn = spec[0], spec[1]
@@ -146,20 +149,24 @@ def _run_loaders(cache, loaders) -> tuple[SourceBundle, dict]:
             ctx.merged.status.append(SourceStatus(name, False, 0, '', msg))
             continue
         try:
+            # Alles per lader binnen de try: een kapotte lader breekt de run niet af
             bundle = fn(ctx)
+            if not isinstance(bundle, SourceBundle):
+                raise TypeError(f'lader gaf {type(bundle).__name__} in plaats van een SourceBundle')
+            if not bundle.status:
+                bundle.status.append(SourceStatus(name, True, len(bundle.entities), '', ''))
+            merged = ctx.merged.merge(bundle)
         except Exception as e:  # noqa: BLE001
             log.error('Bron %s mislukt: %s', name, e, exc_info=True)
             ctx.merged.status.append(SourceStatus(name, False, 0, '', str(e) or type(e).__name__))
             continue
-        if not bundle.status:
-            bundle.status.append(SourceStatus(name, True, len(bundle.entities), '', ''))
         for st in bundle.status:
             if not st.ok:
                 log.error('Bron %s meldt een fout: %s', st.name, st.message)
-        ctx.merged = ctx.merged.merge(bundle)
+        ctx.merged = merged
         if _usable(bundle):
             ctx.bundles[name] = bundle
-    return ctx.merged, ctx.bundles
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +192,8 @@ def _drop_duplicate_ids(entities, warnings):
 def _drop_unknown_kinds(entities, warnings):
     bad = ~entities['kind'].isin(list(KIND_TO_SEGMENT))
     if bad.any():
-        pairs = [f'{e} ({k})' for e, k in entities.loc[bad, ['entity_id', 'kind']].values]
+        pairs = [f'{e} ({k}, bron {s or "?"})'
+                 for e, k, s in entities.loc[bad, ['entity_id', 'kind', 'source']].values]
         msg = f'{int(bad.sum())} entiteiten met onbekend kind verwijderd: {_sample(pairs)}'
         log.error(msg)
         warnings.append(msg)
@@ -201,6 +209,8 @@ def _apply_id_patches(entities, patches, warnings):
     pos = {eid: i for i, eid in zip(out.index, out['entity_id'])}
     unknown, n = [], 0
     for eid, ids in patches[['entity_id', 'official_ids']].values:
+        if _is_empty(eid) or _is_empty(ids):
+            continue
         if eid not in pos:
             unknown.append(eid)
             continue
@@ -304,11 +314,14 @@ def build_master(cache, loaders: list[tuple[str, Callable]] | None = None) -> So
     Geeft de samengevoegde SourceBundle; extras['municipal_population'] is de volledige
     gemeentebevolking (NL/BE/DE) en extras['warnings'] de waarschuwingen voor de runlog.
     """
-    merged, _ = _run_loaders(cache, default_loaders() if loaders is None else loaders)
-    warnings: list[str] = []
+    ctx = _run_loaders(cache, default_loaders() if loaders is None else loaders)
+    merged = ctx.merged
+    warnings: list[str] = list(ctx.warnings)
     extras = merged.extras
 
-    entities = _drop_duplicate_ids(merged.entities.reset_index(drop=True), warnings)
+    entities = merged.entities.reset_index(drop=True)
+    entities['population'] = pd.to_numeric(entities['population'], errors='coerce')
+    entities = _drop_duplicate_ids(entities, warnings)
     entities = _drop_unknown_kinds(entities, warnings)
     entities = _apply_id_patches(entities, extras.get('id_patches'), warnings)
     entity_ids = set(entities['entity_id'])
@@ -323,6 +336,7 @@ def build_master(cache, loaders: list[tuple[str, Callable]] | None = None) -> So
     warnings.extend(sum_warnings)
     entities = apply_country_totals(entities, muni_pop)
     entities = _fill_same_as(entities, memberships, muni_pop, warnings)
+    entities['population'] = pd.to_numeric(entities['population'], errors='coerce')
 
     failed = [s.name for s in merged.status if not s.ok]
     if failed:

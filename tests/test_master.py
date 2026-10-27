@@ -108,7 +108,8 @@ def test_id_patches_attach_kvk_to_gemeente():
     cbs = _bundle('nl_cbs', [gem])
     oo = _bundle('nl_oo', extras={'id_patches': pd.DataFrame(
         [{'entity_id': 'NL-GM-GM0363', 'official_ids': 'kvk:34366966;cbs:GM0363;oin:0001'},
-         {'entity_id': 'NL-GM-GM9999', 'official_ids': 'kvk:12345678'}])})
+         {'entity_id': 'NL-GM-GM9999', 'official_ids': 'kvk:12345678'},
+         {'entity_id': 'NL-GM-GM0363', 'official_ids': float('nan')}])})
     result = build_master(None, loaders=[('nl_cbs', _fixed(cbs)), ('nl_oo', _fixed(oo))])
     row = result.entities.set_index('entity_id').loc['NL-GM-GM0363']
     assert row['official_ids'] == 'cbs:GM0363;kvk:34366966;oin:0001'
@@ -180,7 +181,7 @@ def test_memberships_and_aliases_validated(caplog):
     assert any('NL-GM-GM0404' in m for m in errors)
     # Onbekend kind: rij eruit met ERROR
     assert 'NL-XX-1' not in set(result.entities['entity_id'])
-    assert any('nl_onbekend' in m for m in errors)
+    assert any('nl_onbekend' in m and 'bron bron' not in m and 'bron ?' in m for m in errors)
 
 
 def test_loader_without_status_gets_one():
@@ -199,3 +200,103 @@ def test_default_loader_order():
     deps = {s[0]: (s[2] if len(s) > 2 else ()) for s in specs}
     assert deps['be_op'] == ('be_wikidata',) and deps['be_wb'] == ('be_wikidata',)
     assert deps['de_hand'] == ('de_gv',)
+
+
+def test_loader_returning_non_bundle_does_not_abort():
+    good = _bundle('goed', [_gem('NL-GM-GM0001', 'Aa', 1)])
+
+    broken_merge = SourceBundle.empty()
+    broken_merge.extras = {'municipal_population': 'geen dict'}
+    broken_merge.entities = None   # merge faalt op len(None)
+    broken_merge.status.append(SourceStatus('stuk', True, 0, '', ''))
+    result = build_master(None, loaders=[('niets', lambda ctx: None), ('stuk', lambda ctx: broken_merge),
+                                         ('goed', _fixed(good))])
+    st = _status(result, 'niets')
+    assert st.ok is False and 'SourceBundle' in st.message
+    assert _status(result, 'stuk').ok is False
+    assert _status(result, 'goed').ok
+    assert list(result.entities['entity_id']) == ['NL-GM-GM0001']
+    assert result.entities['population'].dtype.kind in 'if'
+
+
+def test_cooperation_members_from_other_bundle():
+    gem = _bundle('nl_cbs', [_gem('NL-GM-GM0001', 'Aa', 100), _gem('NL-GM-GM0002', 'Bee', 250)])
+    coop = _bundle('nl_oo', [
+        dict(entity_id='NL-SO-SO0001', name='GR', country='NL', kind='nl_samenwerking',
+             population_method='sum of members')],
+        memberships=[('NL-SO-SO0001', 'NL-GM-GM0001', 'cooperation'),
+                     ('NL-SO-SO0001', 'NL-GM-GM0002', 'cooperation')])
+    result = build_master(None, loaders=[('nl_cbs', _fixed(gem)), ('nl_oo', _fixed(coop))])
+    row = result.entities.set_index('entity_id').loc['NL-SO-SO0001']
+    assert row['population'] == 350 and row['population_method'] == 'sum of members'
+    assert not result.extras['warnings']
+
+
+def test_default_wiring_passes_exact_arguments(monkeypatch):
+    import tam.sources.aliases as al
+    import tam.sources.be as be
+    import tam.sources.de as de
+    import tam.sources.nl as nl
+
+    cache = object()
+    calls = {}
+    names = pd.DataFrame({'entity_id': ['BE-NIS-11001', 'BE-NIS-11001', 'BE-NIS-55004'],
+                          'name': ['Aartselaar', 'Aartselaar FR', 'Braine-le-Comte']})
+    be_wd = _bundle('be_wikidata', [
+        _gem('BE-NIS-11001', 'Aartselaar', 10, 'BE', 'be_gemeente'),
+        _gem('BE-NIS-55004', 'Braine-le-Comte', 20, 'BE', 'be_gemeente'),
+        _gem('BE-NIS-24062', 'Leuven', 30, 'BE', 'be_gemeente'),
+        dict(entity_id='BE-NIS-10000', name='Antwerpen', country='BE', kind='be_provincie',
+             population_method='sum of members')],
+        extras={'be_gemeente_names': names})
+    de_pop = {'DE-AGS-01001000': 90000, 'DE-AGS-01051001': 500}
+    verband = {'DE-VB-010515163': ['DE-AGS-01051001']}
+    alias_ids = {'DE-AGS-01051001': 'DE-VB-010515163'}
+    de_gv = _bundle('de_gv', [dict(entity_id='DE-AGS-01001000', name='Flensburg', country='DE',
+                                   kind='de_kreisfreie_stadt', population=90000, population_method='own')],
+                    extras={'municipal_population': de_pop, 'de_verband_members': verband,
+                            'alias_ids': alias_ids, 'de_population_date': '2025-12-31'})
+
+    def record(name, result=None):
+        def fn(*args, **kwargs):
+            calls[name] = (args, kwargs)
+            return result if result is not None else _bundle(name)
+        return fn
+
+    monkeypatch.setattr(nl, 'load_nl_cbs', record('nl_cbs', _bundle('nl_cbs', [_gem('NL-GM-GM0001', 'Aa', 1)])))
+    monkeypatch.setattr(nl, 'load_nl_oo', record('nl_oo'))
+    monkeypatch.setattr(nl, 'load_nl_hand', record('nl_hand'))
+    monkeypatch.setattr(be, 'load_be_wikidata', record('be_wikidata', be_wd))
+    monkeypatch.setattr(be, 'load_be_op', record('be_op'))
+    monkeypatch.setattr(be, 'load_be_wb', record('be_wb'))
+    monkeypatch.setattr(de, 'load_de_gv', record('de_gv', de_gv))
+    monkeypatch.setattr(de, 'load_de_feu', record('de_feu'))
+    monkeypatch.setattr(de, 'load_de_hand', record('de_hand'))
+    monkeypatch.setattr(al, 'load_predecessors', record('aliases'))
+
+    result = build_master(cache)
+    assert [s.name for s in result.status] == DEFAULT_ORDER
+    assert all(s.ok for s in result.status)
+    for name in ('nl_cbs', 'nl_oo', 'be_wikidata', 'de_gv', 'de_feu'):
+        assert calls[name] == ((cache,), {})
+    assert calls['nl_hand'] == ((), {})
+    args, kwargs = calls['be_op']
+    assert args[0] is cache and args[1] is names and not kwargs
+    args, kwargs = calls['be_wb']
+    assert args[0] is cache and args[1] is names and not kwargs
+    assert args[2] == {'BE-NIS-11001', 'BE-NIS-24062'}
+    assert calls['de_hand'] == ((de_pop,), {'verband_members': verband, 'population_date': '2025-12-31'})
+    args, kwargs = calls['aliases']
+    assert args[0] is cache and kwargs == {'alias_ids': alias_ids}
+    assert set(args[1]['entity_id']) >= {'NL-GM-GM0001', 'BE-NIS-11001', 'DE-AGS-01001000'}
+    assert list(args[2].columns) == ALIAS_COLUMNS
+    assert not any('DE GV ontbreekt' in w for w in result.extras['warnings'])
+
+    # DE GV faalt: de_hand overgeslagen, voorgangers zonder alias_ids met waarschuwing
+    calls.clear()
+    monkeypatch.setattr(de, 'load_de_gv', record('de_gv', _bundle('de_gv', ok=False)))
+    result = build_master(cache)
+    assert _status(result, 'de_hand').message == 'overgeslagen: de_gv ontbreekt'
+    assert 'de_hand' not in calls
+    assert calls['aliases'][1] == {'alias_ids': {}}
+    assert any('DE GV ontbreekt' in w for w in result.extras['warnings'])

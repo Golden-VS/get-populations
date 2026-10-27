@@ -526,19 +526,19 @@ def parse_feu(frames: list[pd.DataFrame], it_names, source_date: str) -> SourceB
 
 def read_feu_xlsx(path) -> pd.DataFrame:
     """Lees het lijstblad van een FEU-xlsx (kop 'Identifikator' op tekst gezocht)."""
-    xl = pd.ExcelFile(path)
-    for sheet in xl.sheet_names:
-        if not sheet.strip().startswith('Liste'):
-            continue
-        raw = xl.parse(sheet, header=None, dtype=str)
-        first = raw.iloc[:, 0].map(_s)
-        hdr = first[first == 'Identifikator'].index[0]
-        header = [_s(v) for v in raw.loc[hdr]]
-        df = raw.loc[hdr + 1:].copy()
-        df.columns = header
-        df = df[df['Identifikator'].map(_s) != '']
-        return pd.DataFrame({'id': df['Identifikator'].map(_s), 'name': df['Berichtsstelle'].map(_s),
-                             'ebene': df['Ebene'].map(_s), 'land': df['Land'].map(_s)})
+    with pd.ExcelFile(path) as xl:  # sluit het werkboek (geen ResourceWarning)
+        for sheet in xl.sheet_names:
+            if not sheet.strip().startswith('Liste'):
+                continue
+            raw = xl.parse(sheet, header=None, dtype=str)
+            first = raw.iloc[:, 0].map(_s)
+            hdr = first[first == 'Identifikator'].index[0]
+            header = [_s(v) for v in raw.loc[hdr]]
+            df = raw.loc[hdr + 1:].copy()
+            df.columns = header
+            df = df[df['Identifikator'].map(_s) != '']
+            return pd.DataFrame({'id': df['Identifikator'].map(_s), 'name': df['Berichtsstelle'].map(_s),
+                                 'ebene': df['Ebene'].map(_s), 'land': df['Land'].map(_s)})
     raise ValueError(f'Geen FEU-lijstblad in {path}')
 
 

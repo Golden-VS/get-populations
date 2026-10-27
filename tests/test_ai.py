@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import anthropic
 import httpx
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from tam.ai import (AIBatchError, AIRefusal, CostCapReached, CostTracker,
                     call_parsed, estimate_cost)
@@ -79,16 +79,30 @@ def test_success_call_shape_and_usage():
     assert kw['output_config'] == {'effort': 'medium'}
     assert 'output_config' not in kw['extra_body']
     assert 'thinking' not in kw
+    assert kw['model'] == 'claude-opus-5-5'
+    assert kw['max_tokens'] == 16000
+    assert kw['system'] == [{'type': 'text', 'text': 'sys',
+                             'cache_control': {'type': 'ephemeral'}}]
+    assert kw['extra_body'] == {'fallbacks': 'default'}
+    assert kw['extra_headers'] == {'anthropic-beta': 'server-side-fallback-2026-07-01'}
     assert t.spent > 0
 
 
 def test_refusal_raises():
-    client = FakeClient(response=_resp(stop='refusal'))
+    class Resp:
+        stop_reason = 'refusal'
+        usage = SimpleNamespace(input_tokens=1_000_000, output_tokens=0)
+
+        @property
+        def parsed_output(self):
+            raise AssertionError('parsed_output mag niet gelezen worden')
+
+    client = FakeClient(response=Resp())
     t = CostTracker(10)
     with pytest.raises(AIRefusal):
         call_parsed(client, t, system='s', user='u', output_model=Batch,
                     estimated_cost=0.1)
-    assert t.spent > 0
+    assert t.spent == pytest.approx(4.0)
 
 
 def test_api_error_wrapped_as_batch_error():
@@ -101,11 +115,9 @@ def test_api_error_wrapped_as_batch_error():
 
 
 def test_validation_error_wrapped():
-    try:
+    with pytest.raises(ValidationError) as excinfo:
         Batch.model_validate({'items': 'x'})
-    except Exception as e:
-        exc = e
-    client = FakeClient(exc=exc)
+    client = FakeClient(exc=excinfo.value)
     with pytest.raises(AIBatchError):
         call_parsed(client, CostTracker(10), system='s', user='u',
                     output_model=Batch, estimated_cost=0.1)

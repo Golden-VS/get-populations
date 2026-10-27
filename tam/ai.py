@@ -61,7 +61,8 @@ def call_parsed(client, tracker: CostTracker, *, system: str, user: str,
     zijn (geen kale list[...]). Gebruik wordt eerst bijgeteld, daarna pas op
     weigering gecontroleerd. Let op: bij server-side fallback kan een beurt
     tegen het tarief van een ander model gefactureerd worden; die afwijking
-    wordt niet bijgehouden (geaccepteerde onderschatting).
+    wordt niet bijgehouden (geaccepteerde onderschatting). Hetzelfde geldt voor
+    een ValidationError binnen parse: het gebruik van die aanroep gaat verloren.
     """
     tracker.check_room(estimated_cost)
     try:

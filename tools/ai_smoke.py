@@ -1,9 +1,14 @@
 """Eenmalige live smoke-test van tam.ai.call_parsed (kost centen).
 Gebruik: ANTHROPIC_API_KEY=... venv/bin/python tools/ai_smoke.py"""
-import anthropic
-from pydantic import BaseModel
+import sys
+from pathlib import Path
 
-from tam.ai import CostTracker, call_parsed
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import anthropic  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
+
+from tam.ai import CostTracker, call_parsed  # noqa: E402
 
 
 class Item(BaseModel):

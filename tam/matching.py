@@ -281,32 +281,48 @@ def _rule_match(row, index, company_index, postcode_by_id):
         if len(ids) == 1:
             return ids[0], RULE_REASON_ID
 
-    # 2. naam binnen verenigbare kinds; zonder kinds de ruwe naam tegen alle kinds
+    # 2. naam alleen binnen verenigbare kinds (spec 14); een type zonder kinds (onbekend,
+    #    niet-overheid) matcht nooit op naam en gaat naar pass 2 (M2)
+    if not allowed:
+        return None
     detected_type = _text(row.get('detected_type'))
     raw = normalize(_text(row.get('name')))
-    if allowed:
-        hits = [h for h in _lookup(index, country, [crm_name_key(row), raw]) if h[1] in allowed]
-    else:
-        hits = _lookup(index, country, [raw])
+    hits = [h for h in _lookup(index, country, [crm_name_key(row), raw]) if h[1] in allowed]
     # bij meerdere treffers gaat de primaire kind van het CRM-type voor (R15)
+    discarded: list = []
     primary = PRIMARY_KINDS.get(detected_type)
     if len(hits) > 1 and primary:
         preferred = [h for h in hits if h[1] in primary]
         if preferred:
+            discarded = [h for h in hits if h[1] not in primary]
             hits = preferred
+    plz = _crm_postcode(row) if country == 'DE' else ''
+
+    def closeness(hit):
+        return _plz_closeness(plz, postcode_by_id.get(hit[0])) if plz else 0
+
+    def beats_discarded(hit) -> bool:
+        """DE na vernauwing (F1): alleen met CRM-postcode, minstens 3 gelijke cijfers en
+        minstens zo dichtbij als elke weggevallen treffer (anders bv. een gelijknamige
+        Gemeinde in een ander Land); zonder vernauwing altijd goed."""
+        if country != 'DE' or not discarded:
+            return True
+        best_discarded = max(closeness(h) for h in discarded)
+        return bool(plz) and closeness(hit) >= 3 and closeness(hit) >= best_discarded
+
     if len(hits) == 1:
-        return hits[0][0], hits[0][2]
+        if beats_discarded(hits[0]):
+            return hits[0][0], hits[0][2]
+        return None
 
     # 3. DE: meerdere gelijknamige treffers van dezelfde kind, beslissen op postcode;
     #    gemengde kinds gaan naar pass 2
-    if len(hits) > 1 and country == 'DE' and len({h[1] for h in hits}) == 1:
-        plz = _crm_postcode(row)
-        if plz:
-            exact = [h for h in hits if _plz_closeness(plz, postcode_by_id.get(h[0])) == 5]
-            if not exact:
-                exact = [h for h in hits if _plz_closeness(plz, postcode_by_id.get(h[0])) >= 3]
-            if len(exact) == 1:
-                return exact[0][0], RULE_REASON_POSTCODE
+    if len(hits) > 1 and country == 'DE' and len({h[1] for h in hits}) == 1 and plz:
+        exact = [h for h in hits if closeness(h) == 5]
+        if not exact:
+            exact = [h for h in hits if closeness(h) >= 3]
+        if len(exact) == 1 and beats_discarded(exact[0]):
+            return exact[0][0], RULE_REASON_POSTCODE
     return None
 
 
@@ -748,7 +764,9 @@ def apply_overrides(matches: pd.DataFrame, overrides: pd.DataFrame, entity_ids: 
     """Overrides (accountid, entity_id, reason) winnen van pass 1 en 2.
 
     Lege entity_id = geforceerd geen match; onbekende entity_id = FOUT-melding, genegeerd.
-    `crm_names` (optioneel, accountid -> naam) vult crm_name voor accounts zonder match.
+    `crm_names` (optioneel, accountid -> naam van de hele CRM) vult crm_name voor accounts
+    zonder match; is hij gegeven, dan wordt een override voor een accountid dat niet in de
+    CRM staat met een waarschuwing genegeerd (M3).
     """
     out = matches[MATCH_COLUMNS].copy() if len(matches) else pd.DataFrame(columns=MATCH_COLUMNS)
     warnings: list[str] = []
@@ -762,6 +780,12 @@ def apply_overrides(matches: pd.DataFrame, overrides: pd.DataFrame, entity_ids: 
             continue
         entity_id = _text(getattr(o, 'entity_id', ''))
         reason = _text(getattr(o, 'reason', ''))
+        if crm_names is not None and accountid not in crm_names:
+            message = (f'override voor account {accountid} genegeerd: accountid staat niet in de '
+                       f'CRM')
+            log.warning(message)
+            warnings.append(message)
+            continue
         if entity_id and entity_id not in entity_ids:
             message = (f'FOUT: override voor account {accountid} verwijst naar onbekende '
                        f'entity_id {entity_id}; genegeerd')

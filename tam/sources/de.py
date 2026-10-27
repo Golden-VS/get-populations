@@ -327,9 +327,14 @@ def parse_gv(df: pd.DataFrame, stichtag: str, population_date: str = '') -> Sour
         else:
             name = f'{label} {core}'
         eid = f'DE-ARS-{r.vkey}'
+        # Geen eigen PLZ: de (unieke, gesorteerde) PLZ's van de leden, voor de postcodecheck
+        # in de matching (F1)
+        plz = ';'.join(sorted({str(v).strip() for v in sub['plz']
+                               if isinstance(v, str) and v.strip()}))
         rows.append(new_entity(entity_id=eid, name=name, match_name=match_name_de(core),
                                kind='de_gemeindeverband', region=kreis_name.get(r.k5, ''),
-                               **sum_fields(sub), official_ids=f'ars:{r.vkey}', **common))
+                               postcode=plz, **sum_fields(sub), official_ids=f'ars:{r.vkey}',
+                               **common))
         counts[label] = counts.get(label, 0) + 1
         for m in sub.itertuples():
             if rule == 'verband':

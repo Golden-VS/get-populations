@@ -195,14 +195,22 @@ def test_same_name_and_kind_matches():
     assert set(matched['match_reason']) == {'same name'}
 
 
-def test_unknown_type_uses_raw_name_against_all_kinds():
+def test_type_without_kinds_never_name_matches_in_pass1():
+    # M2: zonder verenigbare kinds (onbekend of niet-overheidstype) geen naamregel, door naar pass 2
     entities = ents(
         dict(entity_id='NL-OO-1', name='Dienst Dommelvallei', country='NL', kind='nl_samenwerking'),
         dict(entity_id='NL-CBS-GM1', name='Dommelvallei', country='NL', kind='nl_gemeente'),
+        dict(entity_id='NL-CBS-PV29', name='Zeeland', country='NL', kind='nl_provincie'),
     )
-    frame = crm(dict(name='Dienst Dommelvallei', canonical_name='Dommelvallei', detected_type='onbekend'))
-    matched, _ = run_pass1(frame, entities)
-    assert matched_ids(matched) == {'acc-0': 'NL-OO-1'}
+    frame = crm(
+        dict(name='Dienst Dommelvallei', canonical_name='Dommelvallei', detected_type='onbekend'),
+        dict(name='Zeeland', detected_type=float('nan')),
+        dict(name='Zeeland', detected_type='commercieel_of_overig',
+             **{'Segment (category)': 'Non-profit'}),
+    )
+    matched, rest = run_pass1(frame, entities)
+    assert len(matched) == 0
+    assert list(rest['accountid']) == ['acc-0', 'acc-1', 'acc-2']
 
 
 def test_de_same_name_resolved_by_postcode():
@@ -394,7 +402,7 @@ def test_override_replaces_and_unknown_id_warns():
 def _adenau():
     return ents(
         dict(entity_id='DE-ARS-071315003', name='Verbandsgemeinde Adenau', match_name='Adenau',
-             country='DE', kind='de_gemeindeverband'),
+             country='DE', kind='de_gemeindeverband', postcode='53518;53520'),
         dict(entity_id='DE-AGS-07131003', name='Adenau', country='DE', kind='de_gemeinde',
              postcode='53518'),
     )
@@ -411,9 +419,49 @@ def test_verband_account_matches_verband_not_seat_gemeinde():
 
 def test_gemeinde_account_matches_gemeinde_not_verband():
     frame = crm(dict(name='Gemeinde Adenau', canonical_name='Adenau', detected_type='gemeinde_de',
-                     detected_country='DE'))
+                     detected_country='DE', cx_address3_postalcode='53518'))
     matched, _ = run_pass1(frame, _adenau())
     assert matched_ids(matched) == {'acc-0': 'DE-AGS-07131003'}
+
+
+def _roth():
+    # Ortsgemeinde Roth zit in een Verbandsgemeinde (RP, alias); een zelfstandige Roth in Bayern
+    entities = ents(
+        dict(entity_id='DE-ARS-071325009', name='Verbandsgemeinde Hamm (Sieg)',
+             match_name='Hamm (Sieg)', country='DE', kind='de_gemeindeverband',
+             postcode='57539;57577'),
+        dict(entity_id='DE-AGS-09576143', name='Roth', country='DE', kind='de_gemeinde',
+             postcode='91154'),
+    )
+    alias_frame = aliases({'alias_name': 'Roth', 'country': 'DE', 'entity_id': 'DE-ARS-071325009',
+                           'reason': 'member of Verbandsgemeinde Hamm (Sieg)'})
+    return entities, alias_frame
+
+
+def test_de_narrowed_hit_in_other_land_goes_to_pass2():
+    # F1: de vernauwing naar de primaire kind mag niet over Landsgrenzen heen matchen
+    entities, alias_frame = _roth()
+    frame = crm(
+        dict(name='Ortsgemeinde Roth', canonical_name='Roth', detected_type='gemeinde_de',
+             detected_country='DE', cx_address3_postalcode='57539'),
+        dict(name='Gemeinde Roth', canonical_name='Roth', detected_type='gemeinde_de',
+             detected_country='DE'),
+        dict(name='Stadt Roth', canonical_name='Roth', detected_type='gemeinde_de',
+             detected_country='DE', cx_address3_postalcode='91154'),
+    )
+    matched, rest = run_pass1(frame, entities, alias_frame)
+    assert matched_ids(matched) == {'acc-2': 'DE-AGS-09576143'}
+    assert list(rest['accountid']) == ['acc-0', 'acc-1']
+
+
+def test_de_narrowed_hit_needs_postcode_at_least_as_close_as_discarded():
+    entities, alias_frame = _roth()
+    # de gehouden Gemeinde deelt 3 cijfers, de weggevallen alias (Verband) alle 5
+    entities.loc[entities['entity_id'] == 'DE-AGS-09576143', 'postcode'] = '57511'
+    frame = crm(dict(name='Roth', canonical_name='Roth', detected_type='gemeinde_de',
+                     detected_country='DE', cx_address3_postalcode='57539'))
+    matched, rest = run_pass1(frame, entities, alias_frame)
+    assert len(matched) == 0 and list(rest['accountid']) == ['acc-0']
 
 
 def test_mixed_kind_tie_goes_to_rest():
@@ -517,6 +565,21 @@ def test_override_unknown_id_logs_error(caplog):
     assert warnings[0].startswith('FOUT:')
     errors = [r for r in caplog.records if r.levelname == 'ERROR']
     assert len(errors) == 1 and 'E-UNKNOWN' in errors[0].getMessage()
+
+
+def test_override_for_account_not_in_crm_warns_and_is_ignored(caplog):
+    # M3: een override voor een accountid dat niet in de CRM staat, wordt genegeerd
+    matches = _matches(('E1', 'acc-1', 'Gemeente A', 'rule', 'same name', 'high'))
+    overrides = pd.DataFrame([{'accountid': 'acc-77', 'entity_id': 'E1', 'reason': 'oud'},
+                              {'accountid': 'acc-78', 'entity_id': '', 'reason': 'oud'}])
+    with caplog.at_level('WARNING', logger='tam.matching'):
+        out, warnings = apply_overrides(matches, overrides, {'E1'},
+                                        crm_names={'acc-1': 'Gemeente A'})
+    assert list(out['accountid']) == ['acc-1']
+    assert len(warnings) == 2 and 'acc-77' in warnings[0] and 'acc-78' in warnings[1]
+    assert all('niet in de CRM' in w for w in warnings)
+    logged = [r.getMessage() for r in caplog.records if r.levelname == 'WARNING']
+    assert any('acc-77' in m for m in logged)
 
 
 # ---------- pass 2 (AI) ----------

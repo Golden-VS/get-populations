@@ -111,17 +111,21 @@ def _text(value) -> str:
     return str(value).strip()
 
 
-def _final_overrides(overrides: pd.DataFrame, entity_ids: set) -> dict[str, str]:
+def _final_overrides(overrides: pd.DataFrame, entity_ids: set,
+                     crm_ids: set | None = None) -> dict[str, str]:
     """accountid -> entity_id ('' = geforceerd geen match) voor geldige overrides; laatste wint.
 
     Overrides met een onbekende entity_id tellen niet (apply_overrides meldt ze als FOUT),
-    zodat zo'n account gewoon door pass 2 gaat.
+    zodat zo'n account gewoon door pass 2 gaat. Met `crm_ids` tellen overrides voor
+    accounts die niet in de CRM staan ook niet (apply_overrides waarschuwt).
     """
     final: dict[str, str] = {}
     if overrides is None or not len(overrides):
         return final
     for accountid, entity_id in zip(overrides['accountid'], overrides['entity_id']):
         accountid, entity_id = _text(accountid), _text(entity_id)
+        if crm_ids is not None and accountid not in crm_ids:
+            continue
         if accountid and (not entity_id or entity_id in entity_ids):
             final[accountid] = entity_id
     return final
@@ -257,7 +261,8 @@ def run_build(args) -> int:
     index = build_name_index(entities, aliases)
     by_country = entities_by_country(entities, aliases)
     matched1, rest = pass1(scope, entities, index)
-    forced = _final_overrides(overrides, entity_ids)
+    crm_names = dict(zip(crm['accountid'].map(_text), crm['name'].map(_text)))
+    forced = _final_overrides(overrides, entity_ids, set(crm_names))
     rest = rest[~rest['accountid'].map(_text).isin(forced.keys())]
     n_pass2 = pass2_pending(rest, by_country, index, cache_path=MATCH_CACHE)
     print(f'CRM: {len(crm)} accounts, {len(scope)} in scope, {len(out_of_scope_gov)} '
@@ -295,7 +300,6 @@ def run_build(args) -> int:
         print(f'Kostenplafond bereikt tijdens {"/".join(capped)}: classificatie {cstats["cap"]} '
               f'samenwerkingen, matching {pstats["cap"]} accounts niet naar AI (caches bewaard; '
               f'een volgende run gaat verder).')
-    crm_names = dict(zip(crm['accountid'].map(_text), crm['name'].map(_text)))
     matches, override_warnings = apply_overrides(
         _concat([matched1, matched2], MATCH_COLUMNS), overrides, entity_ids,
         crm_names=crm_names)

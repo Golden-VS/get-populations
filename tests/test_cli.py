@@ -341,3 +341,17 @@ def test_classification_cap_reported(tmp_path, env, monkeypatch, capsys):
     log = pd.read_excel(tmp_path / 'out.xlsx', sheet_name='Run log', dtype=str).fillna('')
     text = ' | '.join(log['waarde'])
     assert 'kostenplafond 1' in text and 'NL-OO-1' in text
+
+
+def test_override_for_unknown_account_in_run_log_and_not_counted(tmp_path, env):
+    tpl = _template(tmp_path, overrides=[('acc-99', 'NL-CBS-GM0001', 'oud account'),
+                                         ('acc-2', '', 'geen klant')])
+    rc = tam_build.main(_run_args(tmp_path, tpl, '--no-ai'))
+    assert rc == 0
+    log = pd.read_excel(tmp_path / 'out.xlsx', sheet_name='Run log', dtype=str).fillna('')
+    pairs = dict(zip(log['onderwerp'], log['waarde']))
+    assert pairs['overrides naar entiteit'] == '0'
+    assert pairs['overrides geen match'] == '1'
+    assert any('acc-99' in v and 'niet in de CRM' in v for v in log['waarde'])
+    matches = pd.read_excel(tmp_path / 'out.xlsx', sheet_name='CRM matches')
+    assert 'acc-99' not in set(matches['accountid'])

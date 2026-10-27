@@ -438,3 +438,10 @@ def test_load_de_gv_all_quarters_fail(monkeypatch):
     monkeypatch.setattr(de, 'read_gv_xlsx', lambda p: (_ for _ in ()).throw(ValueError('kapot')))
     b = de.load_de_gv(_FakeCache())
     assert not b.status[0].ok and 'kapot' in b.status[0].message
+
+
+def test_verband_postcode_lists_member_postcodes(gv):
+    # F1: een Verband heeft geen eigen PLZ; de PLZ's van de leden maken de postcodecheck
+    # van pass 1 (vernauwing naar Verband of Gemeinde) mogelijk
+    assert _ent(gv, 'DE-ARS-010515163')['postcode'] == '25712;25715'
+    assert _ent(gv, 'DE-ARS-081155001')['postcode'] == '71120;71134'

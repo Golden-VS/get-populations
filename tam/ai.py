@@ -9,6 +9,12 @@ from pydantic import ValidationError
 
 from tam.config import MODEL, PRICES_PER_MTOK
 
+MAX_TOKENS = 16000
+# Ruime bovengrens voor de invoer: hooguit 1 token per 2 tekens, plus vaste overhead voor het
+# uitvoerschema en de berichtopbouw
+CHARS_PER_TOKEN_MIN = 2
+INPUT_OVERHEAD_TOKENS = 1000
+
 
 def atomic_write_csv(df: pd.DataFrame, path) -> None:
     """CSV schrijven via '<bestand>.part' + os.replace: een fout laat het oude bestand heel."""
@@ -70,6 +76,14 @@ def estimate_cost(n_items: int, batch_size: int, in_tokens_per_batch: int,
     return n_batches * per_batch
 
 
+def worst_case_cost(system: str, user: str, max_tokens: int = MAX_TOKENS) -> float:
+    """Bovengrens (USD) voor een aanroep: invoer tegen het (hogere) cache-schrijftarief plus
+    max_tokens aan uitvoer (incl. denkwerk). Basis van de plafondcontrole (M1)."""
+    in_tokens = (len(system) + len(user)) // CHARS_PER_TOKEN_MIN + INPUT_OVERHEAD_TOKENS
+    in_price = max(PRICES_PER_MTOK['input'], PRICES_PER_MTOK['cache_write'])
+    return (in_tokens * in_price + max_tokens * PRICES_PER_MTOK['output']) / 1_000_000
+
+
 def call_parsed(client, tracker: CostTracker, *, system: str, user: str,
                 output_model, estimated_cost: float, effort: str = 'medium'):
     """
@@ -79,12 +93,14 @@ def call_parsed(client, tracker: CostTracker, *, system: str, user: str,
     tegen het tarief van een ander model gefactureerd worden; die afwijking
     wordt niet bijgehouden (geaccepteerde onderschatting). Hetzelfde geldt voor
     een ValidationError binnen parse: het gebruik van die aanroep gaat verloren.
+    Het plafond wordt getoetst tegen het slechtste geval (worst_case_cost, minstens
+    estimated_cost), zodat ook een maximaal lang antwoord het plafond niet overschrijdt.
     """
-    tracker.check_room(estimated_cost)
+    tracker.check_room(max(estimated_cost, worst_case_cost(system, user)))
     try:
         response = client.messages.parse(
             model=MODEL,
-            max_tokens=16000,
+            max_tokens=MAX_TOKENS,
             system=[{'type': 'text', 'text': system,
                      'cache_control': {'type': 'ephemeral'}}],
             messages=[{'role': 'user', 'content': user}],

@@ -121,3 +121,24 @@ def test_validation_error_wrapped():
     with pytest.raises(AIBatchError):
         call_parsed(client, CostTracker(10), system='s', user='u',
                     output_model=Batch, estimated_cost=0.1)
+
+
+def test_cap_checks_worst_case_output():
+    # M1: de controle rekent met max_tokens aan uitvoer, niet met de (lagere) schatting
+    from tam.ai import worst_case_cost
+    # 2 tekens / 2 + 1000 overhead aan invoer (cache-schrijftarief), 16000 uitvoertokens
+    assert worst_case_cost('s', 'u') == pytest.approx(((2 // 2 + 1000) * 5.0 + 16000 * 20.0) / 1e6)
+    t = CostTracker(1.0)
+    t.spent = 0.70
+    client = FakeClient(response=_resp())
+    with pytest.raises(CostCapReached):
+        call_parsed(client, t, system='s', user='u', output_model=Batch, estimated_cost=0.01)
+    assert client.messages.calls == []
+    t.spent = 0.60
+    call_parsed(client, t, system='s', user='u', output_model=Batch, estimated_cost=0.01)
+    assert len(client.messages.calls) == 1
+
+
+def test_worst_case_grows_with_prompt_length():
+    from tam.ai import worst_case_cost
+    assert worst_case_cost('s', 'x' * 20000) > worst_case_cost('s', 'x')

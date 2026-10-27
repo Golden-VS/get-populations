@@ -148,7 +148,7 @@ def crm_in_scope(crm: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         'crm_name': foreign['name'].values,
         'tam_country': '',
         'best_candidate': '',
-        'best_score': None,
+        'best_score': float('nan'),
         'reason': 'land buiten scope',
     }, columns=UNMATCHED_COLUMNS)
     log.info('CRM-scope: %d accounts in scope, %d buitenlandse overheidsaccounts buiten scope',

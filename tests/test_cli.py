@@ -45,7 +45,13 @@ def _fake_master():
                         {'warnings': ['master-waarschuwing']})
 
 
-def _crm_csv(tmp_path):
+def _acc(accountid, name, detected_type='gemeente_nl', country='NL'):
+    return {'accountid': accountid, 'name': name, 'detected_type': detected_type,
+            'detected_country': country, 'Segment (category)': 'Governmental',
+            'segment_confidence': 'high'}
+
+
+def _crm_csv(tmp_path, extra=()):
     path = tmp_path / 'crm.csv'
     pd.DataFrame([
         {'accountid': 'acc-1', 'name': 'Gemeente Aadorp', 'detected_type': 'gemeente_nl',
@@ -54,6 +60,7 @@ def _crm_csv(tmp_path):
          'detected_country': 'NL', 'Segment (category)': 'Governmental', 'segment_confidence': 'high'},
         {'accountid': 'acc-3', 'name': 'Stad Elders', 'detected_type': 'onbekend',
          'detected_country': 'OTHER', 'Segment (category)': 'Governmental', 'segment_confidence': 'high'},
+        *extra,
     ]).to_csv(path, index=False)
     return path
 
@@ -94,8 +101,8 @@ def env(tmp_path, monkeypatch):
     return calls
 
 
-def _run_args(tmp_path, tpl, *extra):
-    return ['--template', str(tpl), '--crm', str(_crm_csv(tmp_path)),
+def _run_args(tmp_path, tpl, *extra, crm_extra=()):
+    return ['--template', str(tpl), '--crm', str(_crm_csv(tmp_path, crm_extra)),
             '--products', str(tmp_path / 'products.xlsx'), '--config', str(tmp_path / 'cfg.json'),
             '--output', str(tmp_path / 'out.xlsx'), *extra]
 
@@ -240,3 +247,97 @@ def test_ai_run_shares_tracker_and_reports_spend(tmp_path, env, monkeypatch, cap
     ents = pd.read_excel(tmp_path / 'out.xlsx', sheet_name='Entities')
     assert ents.set_index('entity_id').at['NL-OO-1', 'detailed_segment'] == 'IT cooperation'
     assert 'AI-uitgaven: $0.25' in capsys.readouterr().out
+
+
+# een account met fuzzy-kandidaat (gaat naar pass 2) en een zonder kandidaat
+PASS2_ACCOUNTS = (_acc('acc-4', 'Gemeente Aadorpp'), _acc('acc-5', 'Xyzzy Qwerty', 'onbekend'))
+
+
+@pytest.mark.filterwarnings('error::FutureWarning')
+def test_unmatched_concat_without_future_warning(tmp_path, env):
+    tpl = _template(tmp_path)
+    rc = tam_build.main(_run_args(tmp_path, tpl, '--no-ai', crm_extra=PASS2_ACCOUNTS))
+    assert rc == 0
+    unmatched = pd.read_excel(tmp_path / 'out.xlsx', sheet_name='CRM unmatched')
+    reasons = dict(zip(unmatched['accountid'], unmatched['reason']))
+    assert reasons == {'acc-4': 'AI overgeslagen (--no-ai)',
+                       'acc-5': 'geen kandidaat boven drempel',
+                       'acc-3': 'land buiten scope'}
+    score = dict(zip(unmatched['accountid'], unmatched['best_score']))
+    assert score['acc-4'] > 0 and pd.isna(score['acc-5']) and pd.isna(score['acc-3'])
+
+
+def test_override_to_entity_skips_pass2_and_unmatched(tmp_path, env, monkeypatch, capsys):
+    tpl = _template(tmp_path, overrides=[('acc-4', 'NL-CBS-GM0002', 'handmatig'),
+                                         ('acc-2', '', 'geen klant')])
+    seen = {}
+    real_classify, real_pass2 = tam_build.classify_cooperations, tam_build.pass2
+
+    def spy_classify(entities, client, tracker, **kw):
+        seen.setdefault('classify_trackers', []).append(tracker)
+        return real_classify(entities, client, tracker, **kw)
+
+    def spy_pass2(rest, entities, aliases, client, tracker, **kw):
+        seen['pass2_accounts'] = list(rest['accountid'])
+        seen['pass2_tracker'] = tracker
+        return real_pass2(rest, entities, aliases, client, tracker, **kw)
+
+    monkeypatch.setattr(tam_build, 'classify_cooperations', spy_classify)
+    monkeypatch.setattr(tam_build, 'pass2', spy_pass2)
+    rc = tam_build.main(_run_args(tmp_path, tpl, '--no-ai', crm_extra=PASS2_ACCOUNTS))
+    assert rc == 0
+    assert seen['pass2_accounts'] == ['acc-5']
+    assert all(t is seen['pass2_tracker'] for t in seen['classify_trackers'])
+    out_path = tmp_path / 'out.xlsx'
+    matches = pd.read_excel(out_path, sheet_name='CRM matches')
+    assert dict(zip(matches['accountid'], matches['match_pass'])) == {'acc-1': 'rule',
+                                                                      'acc-4': 'override'}
+    unmatched = pd.read_excel(out_path, sheet_name='CRM unmatched')
+    assert set(unmatched['accountid']) == {'acc-2', 'acc-3', 'acc-5'}
+    log = pd.read_excel(out_path, sheet_name='Run log', dtype=str).fillna('')
+    pairs = dict(zip(log['onderwerp'], log['waarde']))
+    assert pairs['overrides naar entiteit'] == '1'
+    assert pairs['overrides geen match'] == '1'
+    assert pairs['classificatie pending'] == '1'
+
+
+def test_output_not_writable_stops_before_master(tmp_path, env, capsys):
+    tpl = _template(tmp_path)
+    (tmp_path / '.~lock.out.xlsx#').write_text('x')
+    rc = tam_build.main(_run_args(tmp_path, tpl, '--no-ai'))
+    assert rc == 2
+    assert env['master'] == 0
+    assert 'out.xlsx' in capsys.readouterr().err
+
+
+def test_known_detailed_saved_only_after_write(tmp_path, env, monkeypatch):
+    tpl = _template(tmp_path)
+
+    def boom(*a, **k):
+        raise OSError('schijf vol')
+
+    monkeypatch.setattr(tam_build, 'write_output', boom)
+    with pytest.raises(OSError):
+        tam_build.main(_run_args(tmp_path, tpl, '--no-ai'))
+    assert not (tmp_path / 'reference' / 'tam' / 'known_detailed.json').exists()
+
+
+def test_classification_cap_reported(tmp_path, env, monkeypatch, capsys):
+    from tam import classify as cl
+    from tam.ai import CostCapReached
+    tpl = _template(tmp_path)
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-test')
+    monkeypatch.setattr(tam_build.anthropic, 'Anthropic', lambda: object())
+
+    def capped(*a, **k):
+        raise CostCapReached('plafond')
+
+    monkeypatch.setattr(cl, 'call_parsed', capped)
+    rc = tam_build.main(_run_args(tmp_path, tpl))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert 'Kostenplafond bereikt tijdens classificatie' in out
+    assert 'Niet geclassificeerd: 1' in out
+    log = pd.read_excel(tmp_path / 'out.xlsx', sheet_name='Run log', dtype=str).fillna('')
+    text = ' | '.join(log['waarde'])
+    assert 'kostenplafond 1' in text and 'NL-OO-1' in text

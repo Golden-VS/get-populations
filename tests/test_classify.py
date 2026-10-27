@@ -97,7 +97,7 @@ def test_no_ai_marks_other_joint_arrangement(tmp_path, patch):
     out, stats = run(_ents(('Foo', 'nl_samenwerking')), tmp_path, fake, use_ai=False)
     assert fake.calls == []
     assert out.loc[0, 'detailed_segment'] == 'Other joint arrangement'
-    assert stats['unclassified'] == 1
+    assert stats['unclassified'] == 1 and stats['no_ai'] == 1
 
 
 def test_rules_only_leaves_pending(tmp_path, patch):
@@ -107,8 +107,8 @@ def test_rules_only_leaves_pending(tmp_path, patch):
     assert fake.calls == []
     assert out.loc[0, 'detailed_segment'] == ''
     assert out.loc[1, 'detailed_segment'] == 'Environmental agency'
-    assert stats == {'rule': 1, 'cached': 0, 'ai': 0, 'unclassified': 0, 'pending': 1,
-                     'unclassified_ids': []}
+    assert stats == {'rule': 1, 'cached': 0, 'ai': 0, 'unclassified': 0, 'cap': 0, 'no_ai': 0,
+                     'failed': 0, 'pending': 1, 'unclassified_ids': []}
 
 
 def test_answer_missing_item_left_unclassified(tmp_path, patch):
@@ -134,7 +134,7 @@ def test_batch_error_continues(tmp_path, patch):
     fake = patch(Fake(exc=[AIBatchError('x'), None]))
     df = _ents(('A', 'nl_samenwerking'), ('B', 'nl_samenwerking'))
     out, stats = run(df, tmp_path, fake, batch_size=1)
-    assert stats['unclassified'] == 1 and stats['ai'] == 1
+    assert stats['unclassified'] == 1 and stats['ai'] == 1 and stats['failed'] == 1
 
 
 def test_cost_cap_stops_rest(tmp_path, patch):
@@ -144,7 +144,7 @@ def test_cost_cap_stops_rest(tmp_path, patch):
     assert len(fake.calls) == 2
     assert list(out['detailed_segment']) == [
         'Waste management', 'Other joint arrangement', 'Other joint arrangement']
-    assert stats['unclassified'] == 2
+    assert stats['unclassified'] == 2 and stats['cap'] == 2
 
 
 def test_estimate_classification_cost():

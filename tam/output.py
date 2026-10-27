@@ -11,13 +11,16 @@ log = logging.getLogger(__name__)
 SHEETS = ['TAM', 'CRM matches', 'Entities', 'Memberships', 'CRM unmatched', 'Run log']
 
 
-def check_known_detailed(values: set, path: Path = REFERENCE_DIR / 'known_detailed.json') -> set:
-    """Geef waarden die in eerdere runs niet voorkwamen en bewaar de unie."""
+def check_known_detailed(values: set, path: Path = REFERENCE_DIR / 'known_detailed.json',
+                         *, save: bool = True) -> set:
+    """Geef waarden die in eerdere runs niet voorkwamen; met save=True ook de unie bewaren."""
     path = Path(path)
     known = set()
     if path.exists():
         known = set(json.loads(path.read_text(encoding='utf-8')))
     new = set(values) - known
+    if not save:
+        return new
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(sorted(known | set(values)), ensure_ascii=False, indent=1),
                     encoding='utf-8')
@@ -78,7 +81,8 @@ def build_run_log(**facts) -> list:
     entity_counts: DataFrame (country, kind, count); tam_status_counts: DataFrame
     (company, sales_unit, core_product, country, in_tam, count); population_unknown: dict
     {label: count}; ai_stats: dict; source_status: list[SourceStatus]; strays: list of
-    {company, core_product, sales_unit, rows}; new_detailed: set; warnings: list[str]."""
+    {company, core_product, sales_unit, rows}; new_detailed: set; match_stats: dict
+    {label: count}; warnings: list[str]."""
     log = []
 
     def section(title, rows):
@@ -104,6 +108,8 @@ def build_run_log(**facts) -> list:
                  for r in df.itertuples()])
     if facts.get('population_unknown'):
         section('Inwonertal onbekend', _rows_from(facts['population_unknown']))
+    if facts.get('match_stats'):
+        section('Matching', _rows_from(facts['match_stats']))
     if facts.get('ai_stats') or facts.get('spend') is not None:
         rows = _rows_from(facts.get('ai_stats') or {})
         if facts.get('spend') is not None:

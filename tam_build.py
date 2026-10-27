@@ -134,6 +134,31 @@ def _concat(frames: list[pd.DataFrame], columns: list[str]) -> pd.DataFrame:
     return pd.concat([f[columns] for f in frames], ignore_index=True)
 
 
+def _float_score(frame: pd.DataFrame) -> pd.DataFrame:
+    """best_score altijd float (NaN = geen score), zodat concat geen dtype-gok hoeft te doen."""
+    return frame.assign(best_score=pd.to_numeric(frame['best_score'], errors='coerce').astype(float))
+
+
+def check_output_writable(path: Path) -> None:
+    """Map aanmaken en schrijftest; geopend (lockbestand) of niet schrijfbaar = UsageError."""
+    path = Path(path)
+    for lock in (path.with_name(f'~${path.name}'), path.with_name(f'.~lock.{path.name}#')):
+        if lock.exists():
+            raise UsageError(f'Uitvoerbestand {path} is geopend in een ander programma '
+                             f'(lockbestand {lock.name}); sluit het eerst.')
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            with open(path, 'r+b'):
+                pass
+        else:
+            probe = path.with_name(f'.{path.name}.schrijftest')
+            probe.write_bytes(b'')
+            probe.unlink()
+    except OSError as e:
+        raise UsageError(f'Uitvoerbestand {path} is niet schrijfbaar: {e}') from e
+
+
 def _id_list(ids: list) -> str:
     ids = list(ids)
     more = f' (+{len(ids) - MAX_IDS_IN_LOG} meer)' if len(ids) > MAX_IDS_IN_LOG else ''
@@ -195,6 +220,8 @@ def run_build(args) -> int:
     config = load_config(args.config)
     _require_file(args.products, 'Productbestand')
     _require_file(args.crm, 'CRM-bestand', 'output van stap 1b')
+    if not args.dry_run:
+        check_output_writable(Path(args.output))
 
     use_ai = not (args.no_ai or args.dry_run)
     if use_ai and not load_env_key(ENV_PATH):
@@ -262,6 +289,12 @@ def run_build(args) -> int:
     matched2, unmatched2, pstats = pass2(rest, entities, aliases, client, tracker, use_ai=use_ai,
                                          cache_path=MATCH_CACHE, index=index,
                                          by_country=by_country)
+    capped = [stage for stage, n in (('classificatie', cstats['cap']), ('matching', pstats['cap']))
+              if n]
+    if capped:
+        print(f'Kostenplafond bereikt tijdens {"/".join(capped)}: classificatie {cstats["cap"]} '
+              f'samenwerkingen, matching {pstats["cap"]} accounts niet naar AI (caches bewaard; '
+              f'een volgende run gaat verder).')
     crm_names = dict(zip(crm['accountid'].map(_text), crm['name'].map(_text)))
     matches, override_warnings = apply_overrides(
         _concat([matched1, matched2], MATCH_COLUMNS), overrides, entity_ids,
@@ -273,9 +306,10 @@ def run_build(args) -> int:
         'accountid': forced_none['accountid'].map(_text).values,
         'crm_name': forced_none['name'].map(_text).values,
         'tam_country': forced_none['tam_country'].values,
-        'best_candidate': '', 'best_score': None, 'reason': REASON_OVERRIDE_NONE,
+        'best_candidate': '', 'best_score': float('nan'), 'reason': REASON_OVERRIDE_NONE,
     }, columns=UNMATCHED_COLUMNS)
-    unmatched = _concat([unmatched2, override_none, out_of_scope_gov], UNMATCHED_COLUMNS)
+    unmatched = _concat([_float_score(f) for f in (unmatched2, override_none, out_of_scope_gov)],
+                        UNMATCHED_COLUMNS)
     unmatched = unmatched[~unmatched['accountid'].isin(set(matches['accountid']))]
     unmatched = unmatched.reset_index(drop=True)
 
@@ -287,14 +321,27 @@ def run_build(args) -> int:
     warnings = list(bundle.extras.get('warnings', [])) + list(override_warnings)
     if cstats['unclassified_ids']:
         warnings.append(f"{len(cstats['unclassified_ids'])} samenwerkingen niet geclassificeerd "
-                        f"(Other joint arrangement): {_id_list(cstats['unclassified_ids'])}")
+                        f"(Other joint arrangement; kostenplafond {cstats['cap']}, AI uit "
+                        f"{cstats['no_ai']}, AI-fout {cstats['failed']}): "
+                        f"{_id_list(cstats['unclassified_ids'])}")
     if pstats.get('cap'):
         warnings.append(f"Kostenplafond bereikt tijdens matching: {pstats['cap']} accounts niet "
                         f"naar AI gestuurd")
     ai_stats = {f'classificatie {k}': v for k, v in cstats.items() if k != 'unclassified_ids'}
+    # open na regels + cache komt uit de voorronde; de echte aanroep zet pending niet
+    ai_stats['classificatie pending'] = pre['pending']
     ai_stats.update({f'matching {k}': v for k, v in pstats.items()})
     ai_stats['schatting vooraf (USD)'] = f'{estimate:.2f}'
     detailed = {_text(v) for v in entities['detailed_segment']} - {''}
+    by_pass = matches['match_pass'].value_counts() if len(matches) else pd.Series(dtype=int)
+    match_stats = {
+        'CRM-accounts in scope': len(scope),
+        'buitenlandse overheidsaccounts': len(out_of_scope_gov),
+        **{f'matches {p}': int(by_pass.get(p, 0)) for p in ('rule', 'ai', 'override')},
+        'overrides naar entiteit': sum(1 for e in forced.values() if e),
+        'overrides geen match': sum(1 for e in forced.values() if not e),
+        'niet gematcht': len(unmatched),
+    }
     run_log = build_run_log(
         inputs={
             'datum': date.today().isoformat(), 'model': MODEL, 'sjabloon': args.template,
@@ -309,22 +356,26 @@ def run_build(args) -> int:
         tam_status_counts=tam.groupby(['company', 'sales_unit', 'core_product', 'country',
                                        'in_tam']).size().reset_index(name='count'),
         population_unknown=_population_unknown(entities),
+        match_stats=match_stats,
         ai_stats=ai_stats,
         spend=tracker.spent,
         strays=strays,
-        new_detailed=check_known_detailed(detailed),
+        # alleen bepalen; bewaren pas na geslaagd wegschrijven
+        new_detailed=check_known_detailed(detailed, save=False),
         warnings=warnings,
     )
     write_output(Path(args.output), tam=tam, matches=matches, entities=entities,
                  memberships=memberships, unmatched=unmatched, run_log=run_log)
     log.info('Uitvoer geschreven: %s', args.output)
+    check_known_detailed(detailed)
 
-    _print_summary(definitions, tam, matches, unmatched, tracker.spent, failed_sources,
+    _print_summary(definitions, tam, matches, unmatched, cstats, tracker.spent, failed_sources,
                    args.output)
     return 0
 
 
-def _print_summary(definitions, tam, matches, unmatched, spent, failed_sources, output) -> None:
+def _print_summary(definitions, tam, matches, unmatched, cstats, spent, failed_sources,
+                   output) -> None:
     print('\n== Samenvatting ==')
     print('TAM per definitie:')
     counts = tam.groupby(['company', 'sales_unit', 'core_product', 'country', 'in_tam']).size()
@@ -338,6 +389,7 @@ def _print_summary(definitions, tam, matches, unmatched, spent, failed_sources, 
     passes = ', '.join(f'{p}: {int(by_pass.get(p, 0))}' for p in ('rule', 'ai', 'override'))
     print(f'Matches: {len(matches)} ({passes})')
     print(f'Niet gematcht: {len(unmatched)}')
+    print(f"Niet geclassificeerd: {cstats['unclassified']}")
     print(f'AI-uitgaven: ${spent:.2f}')
     print(f'Mislukte bronnen: {", ".join(failed_sources) or "geen"}')
     print(f'Uitvoer: {output}')

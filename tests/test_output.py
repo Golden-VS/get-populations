@@ -52,6 +52,13 @@ def test_new_detailed_value_reported(tmp_path):
     assert check_known_detailed({'A', 'B'}, path) == {'A', 'B'}
     assert check_known_detailed({'B', 'C'}, path) == {'C'}
     assert check_known_detailed({'A'}, path) == set()
+    assert check_known_detailed({'D'}, path, save=False) == {'D'}
+    assert check_known_detailed({'D'}, path, save=False) == {'D'}
+
+
+def test_match_stats_section():
+    log = build_run_log(match_stats={'overrides naar entiteit': 2})
+    assert ('== Matching ==', '') in log and ('overrides naar entiteit', '2') in log
 
 
 def test_run_log_sections():

@@ -108,8 +108,9 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
     """Vult detailed_segment voor rijen waarvan KIND_TO_SEGMENT geen vaste waarde heeft."""
     member_counts = member_counts or {}
     out = entities.copy()
-    stats = {'rule': 0, 'cached': 0, 'ai': 0, 'unclassified': 0, 'pending': 0,
-             'unclassified_ids': []}
+    # unclassified = cap + no_ai + failed (reden van 'Other joint arrangement')
+    stats = {'rule': 0, 'cached': 0, 'ai': 0, 'unclassified': 0, 'cap': 0, 'no_ai': 0,
+             'failed': 0, 'pending': 0, 'unclassified_ids': []}
     todo_kinds = {k for k, (_, d) in KIND_TO_SEGMENT.items() if d is None}
     todo = out.index[out['kind'].isin(todo_kinds)
                      & (out['detailed_segment'].fillna('') == '')]
@@ -146,16 +147,17 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
         stats['pending'] = len(remaining)
         return out, stats
 
-    def mark_other(indices, reason):
+    def mark_other(indices, reason, counter):
         for idx in indices:
             out.at[idx, 'detailed_segment'] = OTHER
             stats['unclassified'] += 1
+            stats[counter] += 1
             stats['unclassified_ids'].append(out.at[idx, 'entity_id'])
             log.warning('Niet geclassificeerd (%s): %s [%s]', reason,
                         out.at[idx, 'name'], out.at[idx, 'entity_id'])
 
     if not use_ai:
-        mark_other(remaining, 'AI uit')
+        mark_other(remaining, 'AI uit', 'no_ai')
         return out, stats
 
     est = estimate_classification_cost(batch_size, batch_size)
@@ -168,11 +170,11 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
                                  output_model=ClassBatch, estimated_cost=est)
         except CostCapReached as e:
             log.warning('Kostenplafond bereikt tijdens classificatie: %s', e)
-            mark_other(remaining[start:], 'kostenplafond')
+            mark_other(remaining[start:], 'kostenplafond', 'cap')
             break
         except (AIRefusal, AIBatchError) as e:
             log.warning('Batch mislukt: %s', e)
-            mark_other(batch, 'batch mislukt')
+            mark_other(batch, 'batch mislukt', 'failed')
             continue
         answers = {it.volgnummer: it.detailed_segment for it in parsed.items}
         missing = []
@@ -185,6 +187,6 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
             stats['ai'] += 1
             cache_rows[out.at[idx, 'entity_id']] = (
                 out.at[idx, 'name'], seg, f'Claude {MODEL}', date.today().isoformat())
-        mark_other(missing, 'ontbreekt in antwoord')
+        mark_other(missing, 'ontbreekt in antwoord', 'failed')
         _save_cache(cache_path, cache_rows)
     return out, stats

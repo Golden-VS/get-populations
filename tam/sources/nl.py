@@ -395,6 +395,12 @@ def parse_oo_export(xml_path: Path, run_date: date) -> SourceBundle:
     bundle = SourceBundle.empty()
     bundle.entities = pd.DataFrame(rows, columns=bundle.entities.columns)
     bundle.memberships = pd.DataFrame(list(members.values()), columns=bundle.memberships.columns)
+    # Eén patch per gemeente-id; bij dubbele organisaties de official_ids samenvoegen
+    merged = {}
+    for pt in patches:
+        parts = merged.setdefault(pt['entity_id'], [])
+        parts.extend(x for x in pt['official_ids'].split(';') if x and x not in parts)
+    patches = [{'entity_id': k, 'official_ids': ';'.join(v)} for k, v in merged.items()]
     bundle.extras['id_patches'] = pd.DataFrame(patches, columns=_OO_COLUMNS)
     counts = bundle.entities['kind'].value_counts().to_dict()
     msg = (f'{n_active} actieve GR\'en ({n_nobody} zonder orgaan), {len(bodies)} organen, '

@@ -88,8 +88,10 @@ def test_ended_gr_skipped():
 
 def test_gr_without_body_skipped():
     b = _oo()
-    # GR 8004 heeft geen orgaan: geen entiteit en geen lidmaatschap daarvoor
-    assert not any('8004' in e for e in b.entities.entity_id)
+    # GR 8004 heeft geen orgaan: alleen de drie gekoppelde organen bestaan
+    bodies = set(b.entities[b.entities.kind.isin(
+        ['nl_samenwerking', 'nl_veiligheidsregio'])]['entity_id'])
+    assert bodies == {'NL-SO-SO0001', 'NL-SO-SO0003', 'NL-OO-9002'}
     assert set(b.memberships.entity_id) <= set(b.entities.entity_id)
 
 
@@ -183,3 +185,61 @@ def test_province_placeholder_not_created():
     pv = b.entities[b.entities.kind == 'nl_provincie']
     assert set(pv.entity_id) == {'NL-PV-PV20', 'NL-PV-PV22'}
     assert not b.memberships['entity_id'].str.contains(r'PV-\.').any()
+
+
+def _mini_xml(tmp_path, orgs='', grs=''):
+    ns = 'https://organisaties.overheid.nl/static/schema/oo/export/2.6.13'
+    path = tmp_path / 'mini.xml'
+    path.write_text(f'<p:overheidsorganisaties xmlns:p="{ns}"><p:organisaties>{orgs}</p:organisaties>'
+                    f'<p:gemeenschappelijkeRegelingen>{grs}</p:gemeenschappelijkeRegelingen>'
+                    f'</p:overheidsorganisaties>', encoding='utf-8')
+    return path
+
+
+def _body(sid, name, so):
+    return (f'<p:organisatie p:systeemId="{sid}" p:resourceIdentifierTOOI='
+            f'"https://identifier.overheid.nl/tooi/id/so/{so}"><p:naam>{name}</p:naam>'
+            '<p:types><p:type>Regionaal samenwerkingsorgaan</p:type></p:types></p:organisatie>')
+
+
+def _gr(sid, body, end=''):
+    e = f'<p:datumUitwerkingtreding>{end}</p:datumUitwerkingtreding>' if end else ''
+    return (f'<p:regeling p:systeemId="r{sid}">{e}'
+            f'<p:regionaalSamenwerkingsorgaan p:systeemId="{body}">x</p:regionaalSamenwerkingsorgaan>'
+            '</p:regeling>')
+
+
+def test_end_date_equal_run_date_is_ended(tmp_path):
+    path = _mini_xml(tmp_path, _body(1, 'Een', 'so0001'),
+                     _gr(1, 1, end='2026-10-27'))
+    assert len(parse_oo_export(path, RUN).entities) == 0
+    path = _mini_xml(tmp_path, _body(1, 'Een', 'so0001'), _gr(1, 1, end='2026-10-28'))
+    assert len(parse_oo_export(path, RUN).entities) == 1
+
+
+def test_malformed_end_date_counts_active_with_warning(tmp_path, caplog):
+    path = _mini_xml(tmp_path, _body(1, 'Een', 'so0001'), _gr(1, 1, end='binnenkort'))
+    with caplog.at_level('WARNING'):
+        b = parse_oo_export(path, RUN)
+    assert list(b.entities.entity_id) == ['NL-SO-SO0001']
+    assert 'onleesbare einddatum' in caplog.text
+
+
+def test_vggm_full_name_is_veiligheidsregio(tmp_path):
+    name = 'Veiligheids- en Gezondheidsregio Gelderland-Midden'
+    path = _mini_xml(tmp_path, _body(1, name, 'so0001') + _body(2, 'VGGM', 'so0002'),
+                     _gr(1, 1) + _gr(2, 2))
+    kinds = parse_oo_export(path, RUN).entities.set_index('entity_id')['kind']
+    assert set(kinds) == {'nl_veiligheidsregio'} and len(kinds) == 2
+
+
+def test_id_patches_deduplicated_by_entity_id(tmp_path):
+    def gm(sid, kvk):
+        return (f'<p:organisatie p:systeemId="{sid}" p:resourceIdentifierTOOI='
+                '"https://identifier.overheid.nl/tooi/id/gemeente/gm0005"><p:naam>G</p:naam>'
+                '<p:types><p:type>Gemeente</p:type></p:types><p:identificatiecodes>'
+                f'<p:resourceIdentifier p:naam="KVK-nummer">{kvk}</p:resourceIdentifier>'
+                '</p:identificatiecodes></p:organisatie>')
+    p = parse_oo_export(_mini_xml(tmp_path, gm(1, '111') + gm(2, '222')), RUN).extras['id_patches']
+    assert list(p['entity_id']) == ['NL-GM-GM0005']
+    assert p.iloc[0]['official_ids'] == 'kvk:111;tooi:gm0005;kvk:222'

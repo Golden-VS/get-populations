@@ -351,7 +351,7 @@ it appends rows for new core products and leaves filled rows untouched.
 **`TAM`**: one row per (template row x entity in the selected segments).
 Kept narrow so it stays well under Excel's row limit: `company, sales_unit,
 core_product, country, entity_id, name, detailed_segment, population, in_tam,
-in_tam_reason, matched_accounts (count)`. Other entity attributes live in
+in_tam_reason, matched_accounts (count), notes`. Other entity attributes live in
 `Entities` (join on `entity_id`).
 
 `in_tam` values:

@@ -759,9 +759,9 @@ def load_be_op(cache, gemeenten: pd.DataFrame) -> SourceBundle:
             try:
                 url, release = _op_dump_url()
             except Exception as e:  # noqa: BLE001
-                if not cached.exists():
+                # catalogus onbereikbaar: gecachte dump gebruiken, gemeld als verouderd (F4)
+                if not cache.use_stale('be_op_dump', cached, e):
                     raise
-                log.warning('OP-dump: catalogus onbereikbaar (%s); gecachte dump gebruikt', e)
         path = cache.fetch('be_op_dump', url, suffix='.nt') if url else cached
         if not path.exists():
             raise FileNotFoundError(f'Offline en niet in cache: {path}')

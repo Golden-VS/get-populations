@@ -1,7 +1,13 @@
-"""Gecachte downloads voor de bronbestanden (bestandsleeftijd op mtime)."""
+"""Gecachte downloads voor de bronbestanden (bestandsleeftijd op mtime).
+
+Mislukt een download of SPARQL-query terwijl er al een gecacht bestand is, dan wordt dat
+(verouderde) bestand gebruikt met een WARNING; `SourceCache.stale` houdt bij welke
+bestanden zo gebruikt zijn (naam, datum), zodat de master het in de bronstatus zet.
+"""
 import json
 import logging
 import time
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -20,6 +26,18 @@ class SourceCache:
         self.refresh = refresh
         self.offline = offline
         self.base_dir = Path(base_dir)
+        # (naam, bestandsdatum) van gecachte bestanden die na een mislukte download dienden
+        self.stale: list[tuple[str, str]] = []
+
+    def use_stale(self, name: str, path: Path, error: Exception) -> bool:
+        """Verouderde cache gebruiken na een mislukte download; False als er geen bestand is."""
+        if not path.exists():
+            return False
+        stamp = date.fromtimestamp(path.stat().st_mtime).isoformat()
+        log.warning('Download %s mislukt (%s); verouderde cache gebruikt, datum %s',
+                    name, error, stamp)
+        self.stale.append((name, stamp))
+        return True
 
     def _is_fresh(self, path: Path, max_age_days: int) -> bool:
         if not path.exists():
@@ -48,6 +66,9 @@ class SourceCache:
                     for chunk in r.iter_content(chunk_size=1 << 20):
                         f.write(chunk)
             part.replace(path)
+        except Exception as e:  # noqa: BLE001
+            if not self.use_stale(name, path, e):
+                raise
         finally:
             # Nooit een half bestand achterlaten
             part.unlink(missing_ok=True)
@@ -62,13 +83,19 @@ class SourceCache:
                 raise FileNotFoundError(f'Offline en niet in cache: {path}')
             bindings = json.loads(path.read_text(encoding='utf-8'))
         else:
-            bindings = sparql_query(query, USER_AGENT)
-            self.base_dir.mkdir(parents=True, exist_ok=True)
-            part = path.with_name(path.name + '.part')
             try:
-                part.write_text(json.dumps(bindings), encoding='utf-8')
-                part.replace(path)
-            finally:
-                part.unlink(missing_ok=True)
+                bindings = sparql_query(query, USER_AGENT)
+            except Exception as e:  # noqa: BLE001
+                if not self.use_stale(name, path, e):
+                    raise
+                bindings = json.loads(path.read_text(encoding='utf-8'))
+            else:
+                self.base_dir.mkdir(parents=True, exist_ok=True)
+                part = path.with_name(path.name + '.part')
+                try:
+                    part.write_text(json.dumps(bindings), encoding='utf-8')
+                    part.replace(path)
+                finally:
+                    part.unlink(missing_ok=True)
         rows = [{k: v['value'] for k, v in b.items()} for b in bindings]
         return pd.DataFrame(rows)

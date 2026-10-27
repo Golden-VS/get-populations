@@ -109,3 +109,46 @@ def test_sparql_cached_and_flattened(tmp_path, monkeypatch):
     cache.sparql('q', 'SELECT')
     assert len(calls) == 1
     assert calls[0][1].startswith('get-populations-tam/')
+
+
+def test_failed_download_falls_back_to_stale_cache(tmp_path, monkeypatch, caplog):
+    # F4: download mislukt en er is een (verouderd) bestand: waarschuwing, oud pad terug
+    patch_get(monkeypatch, lambda: FakeResp([b'oud']))
+    cache = SourceCache(base_dir=tmp_path)
+    p = cache.fetch('x', 'http://u', suffix='.xml')
+    old = time.time() - 400 * 86400
+    os.utime(p, (old, old))
+    patch_get(monkeypatch, lambda: FakeResp([b'a', b'b'], fail=True))
+    with caplog.at_level('WARNING', logger='tam.sources.common'):
+        assert cache.fetch('x', 'http://u', suffix='.xml') == p
+    assert p.read_bytes() == b'oud'
+    assert not p.with_name(p.name + '.part').exists()
+    stale_date = time.strftime('%Y-%m-%d', time.localtime(old))
+    assert cache.stale == [('x', stale_date)]
+    assert any('verouderde cache' in r.getMessage() for r in caplog.records
+               if r.levelname == 'WARNING')
+    # --refresh-cache met mislukte download valt ook terug op het bestand
+    refresh = SourceCache(refresh=True, base_dir=tmp_path)
+    assert refresh.fetch('x', 'http://u', suffix='.xml') == p
+    assert refresh.stale == [('x', stale_date)]
+
+
+def test_failed_sparql_falls_back_to_stale_cache(tmp_path, monkeypatch, caplog):
+    bindings = [{'a': {'type': 'literal', 'value': '1'}}]
+    monkeypatch.setattr(common, 'sparql_query', lambda q, ua: bindings)
+    cache = SourceCache(base_dir=tmp_path)
+    cache.sparql('q', 'SELECT')
+    old = time.time() - 400 * 86400
+    os.utime(tmp_path / 'q.json', (old, old))
+
+    def down(query, ua):
+        raise requests.ConnectionError('weg')
+
+    monkeypatch.setattr(common, 'sparql_query', down)
+    with caplog.at_level('WARNING', logger='tam.sources.common'):
+        df = cache.sparql('q', 'SELECT')
+    assert df.to_dict('records') == [{'a': '1'}]
+    assert cache.stale == [('q', time.strftime('%Y-%m-%d', time.localtime(old)))]
+    # zonder cachebestand blijft de fout staan
+    with pytest.raises(requests.ConnectionError):
+        cache.sparql('nieuw', 'SELECT')

@@ -277,3 +277,18 @@ def test_load_be_wikidata_offline(tmp_path):
     names = b.extras['be_gemeente_names']
     assert {'Luik', 'Liège', 'Lüttich'} <= set(names[names.entity_id == 'BE-NIS-62063'].name)
     assert 'Luik' in set(b.aliases[b.aliases.entity_id == 'BE-NIS-62063'].alias_name)
+
+
+def test_op_catalog_down_uses_cached_dump_marked_stale(tmp_path, monkeypatch):
+    # F4: catalogus onbereikbaar en een gecachte dump aanwezig -> verouderde cache gemeld
+    from tam.sources import be
+
+    def down():
+        raise ConnectionError('catalogus weg')
+
+    monkeypatch.setattr(be, '_op_dump_url', down)
+    (tmp_path / 'be_op_dump.nt').write_text(OP_FIXTURE.read_text(encoding='utf-8'), encoding='utf-8')
+    cache = SourceCache(base_dir=tmp_path)
+    b = be.load_be_op(cache, GEMEENTEN)
+    assert b.status[0].ok
+    assert [n for n, _ in cache.stale] == ['be_op_dump']

@@ -300,3 +300,19 @@ def test_default_wiring_passes_exact_arguments(monkeypatch):
     assert 'de_hand' not in calls
     assert calls['aliases'][1] == {'alias_ids': {}}
     assert any('DE GV ontbreekt' in w for w in result.extras['warnings'])
+
+
+def test_stale_cache_fallback_visible_in_source_status():
+    # F4: een lader die op een verouderde cache terugviel, krijgt dat in zijn statusbericht
+    class Cache:
+        stale = []
+
+    def loader(ctx):
+        ctx.cache.stale.append(('nl_oo_export', '2025-01-02'))
+        return _bundle('a', [_gem('NL-GM-GM0001', 'Aa', 100)])
+
+    result = build_master(Cache(), loaders=[('a', loader),
+                                            ('b', _fixed(_bundle('b', [_gem('NL-GM-GM0002', 'Bee', 1)])))])
+    assert 'verouderde cache, datum 2025-01-02' in _status(result, 'a').message
+    assert 'verouderde cache' not in _status(result, 'b').message
+    assert any('verouderde cache, datum 2025-01-02' in w for w in result.extras['warnings'])

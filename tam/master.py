@@ -137,6 +137,17 @@ def _usable(bundle: SourceBundle) -> bool:
     return not (failed and len(bundle.entities) == 0)
 
 
+def _stale_note(cache, start: int) -> str:
+    """'verouderde cache, datum X' voor bestanden die sinds `start` uit de cache kwamen na een
+    mislukte download (SourceCache.stale); leeg als er geen waren."""
+    stale = list(getattr(cache, 'stale', None) or [])[start:]
+    return '; '.join(f'verouderde cache, datum {d} ({n})' for n, d in stale)
+
+
+def _with_note(message: str, note: str) -> str:
+    return f'{message}; {note}' if message else note
+
+
 def _run_loaders(cache, loaders) -> LoadContext:
     ctx = LoadContext(cache)
     for spec in loaders:
@@ -148,6 +159,7 @@ def _run_loaders(cache, loaders) -> LoadContext:
             log.error('Bron %s %s', name, msg)
             ctx.merged.status.append(SourceStatus(name, False, 0, '', msg))
             continue
+        n_stale = len(getattr(cache, 'stale', None) or [])
         try:
             # Alles per lader binnen de try: een kapotte lader breekt de run niet af
             bundle = fn(ctx)
@@ -155,10 +167,17 @@ def _run_loaders(cache, loaders) -> LoadContext:
                 raise TypeError(f'lader gaf {type(bundle).__name__} in plaats van een SourceBundle')
             if not bundle.status:
                 bundle.status.append(SourceStatus(name, True, len(bundle.entities), '', ''))
+            note = _stale_note(cache, n_stale)
+            if note:
+                # verouderde cache zichtbaar in de bronstatus en de runlog (F4)
+                for st in bundle.status:
+                    st.message = _with_note(st.message, note)
+                ctx.warnings.append(f'Bron {name}: download mislukt, {note}')
             merged = ctx.merged.merge(bundle)
         except Exception as e:  # noqa: BLE001
             log.error('Bron %s mislukt: %s', name, e, exc_info=True)
-            ctx.merged.status.append(SourceStatus(name, False, 0, '', str(e) or type(e).__name__))
+            msg = _with_note(str(e) or type(e).__name__, _stale_note(cache, n_stale))
+            ctx.merged.status.append(SourceStatus(name, False, 0, '', msg))
             continue
         for st in bundle.status:
             if not st.ok:

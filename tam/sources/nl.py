@@ -421,3 +421,64 @@ def load_nl_oo(cache: SourceCache) -> SourceBundle:
         bundle = SourceBundle.empty()
         bundle.status.append(SourceStatus('nl_oo', False, 0, '', f'mislukt: {e}'))
         return bundle
+
+
+# ---------------------------------------------------------------------------
+# NL-handrijen: Amsterdamse stadsdelen, openbare lichamen BES, Caribische landen
+# ---------------------------------------------------------------------------
+from step2_enrich import NL_STADSDEEL_INWONERS  # noqa: E402
+from tam import hand_tables  # noqa: E402
+
+_HAND_ALIAS_COLUMNS = ['alias_name', 'country', 'entity_id', 'reason']
+
+
+def _hand_entity(eid, name, kind, row, region=''):
+    pop = row.get('population')
+    return new_entity(
+        entity_id=eid, name=name, country='NL', kind=kind, region=region,
+        population=pop, population_method='own' if pop is not None else 'unknown',
+        population_source=row['bron_url'] if pop is not None else '',
+        population_date=str(row.get('peildatum', '')) if pop is not None else '',
+        official_ids=row.get('official_ids', ''), source=row['bron_url'],
+        source_date=str(row.get('peildatum', '')))
+
+
+def load_nl_hand() -> SourceBundle:
+    """Stadsdelen (step2_enrich.NL_STADSDEEL_INWONERS, ontdubbeld per bron_url), openbare
+    lichamen Bonaire/Sint Eustatius/Saba en de landen Aruba/Curacao/Sint Maarten."""
+    rows, aliases = [], []
+
+    # Stadsdelen: de step2-tabel heeft per stadsdeel twee sleutels met dezelfde bron_url
+    per_url: dict[str, list[str]] = {}
+    for key, value in NL_STADSDEEL_INWONERS.items():
+        per_url.setdefault(value['bron_url'], []).append(key)
+    for url, keys in per_url.items():
+        fixed = hand_tables.NL_STADSDEEL_IDS.get(url)
+        if fixed is None:
+            log.warning('Stadsdeel met bron %s heeft geen vaste id in NL_STADSDEEL_IDS; overgeslagen', url)
+            continue
+        value = NL_STADSDEEL_INWONERS[keys[0]]
+        rows.append(_hand_entity(fixed['id'], fixed['name'], 'nl_stadsdeel', value, region='Amsterdam'))
+        for k in keys:
+            if k != fixed['name'] and k != 'Weesp':
+                aliases.append({'alias_name': k, 'country': 'NL', 'entity_id': fixed['id'],
+                                'reason': 'andere naam (stadsdeeltabel)'})
+
+    for table, kind in ((hand_tables.NL_OPENBARE_LICHAMEN, 'nl_openbaar_lichaam'),
+                        (hand_tables.NL_LANDEN_CARIBISCH, 'nl_land_caribisch')):
+        for name, row in table.items():
+            rows.append(_hand_entity(row['id'], name, kind, row))
+            if row.get('population') is None:
+                log.warning('%s: geen officieel bevolkingscijfer in de handtabel (bron: %s)',
+                            name, row['bron_url'])
+            for alias in row.get('aliases', []):
+                aliases.append({'alias_name': alias, 'country': 'NL', 'entity_id': row['id'],
+                                'reason': 'andere naam (handtabel)'})
+
+    bundle = SourceBundle.empty()
+    bundle.entities = pd.DataFrame(rows, columns=bundle.entities.columns)
+    bundle.aliases = pd.DataFrame(aliases, columns=_HAND_ALIAS_COLUMNS)
+    counts = bundle.entities['kind'].value_counts().to_dict()
+    msg = ', '.join(f'{v} {k}' for k, v in sorted(counts.items()))
+    bundle.status.append(SourceStatus('nl_hand', True, len(rows), '', msg))
+    return bundle

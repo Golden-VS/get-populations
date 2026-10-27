@@ -1,11 +1,13 @@
 """Uitvoerwerkboek en runlog."""
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
 
 from tam.config import REFERENCE_DIR
 
+log = logging.getLogger(__name__)
 SHEETS = ['TAM', 'CRM matches', 'Entities', 'Memberships', 'CRM unmatched', 'Run log']
 
 
@@ -25,6 +27,9 @@ def check_known_detailed(values: set, path: Path = REFERENCE_DIR / 'known_detail
 def _memberships_sheet(memberships: pd.DataFrame, entities: pd.DataFrame) -> pd.DataFrame:
     coop = memberships[memberships['membership_type'] == 'cooperation'].copy()
     seg = dict(zip(entities['entity_id'], entities['detailed_segment']))
+    missing = sorted(set(coop['entity_id']) - set(seg))
+    if missing:
+        log.warning('samenwerking niet in entities: %s', ', '.join(missing))
     coop.insert(1, 'detailed_segment', coop['entity_id'].map(seg).fillna(''))
     return coop.drop(columns=['membership_type']).reset_index(drop=True)
 
@@ -56,17 +61,24 @@ def write_output(path: Path, *, tam, matches, entities, memberships, unmatched, 
     return [path]
 
 
+def _require(df, columns, what):
+    if not isinstance(df, pd.DataFrame) or not set(columns) <= set(df.columns):
+        raise ValueError(f'{what}: DataFrame met kolommen {columns} verwacht')
+
+
 def _rows_from(obj) -> list:
-    if isinstance(obj, pd.DataFrame):
-        df = obj.reset_index()
-        return [(' / '.join(str(r[c]) for c in df.columns[:-1]), str(r[df.columns[-1]]))
-                for _, r in df.iterrows()] if len(df.columns) > 1 else []
+    """Dict {label: waarde} of lijst van labels naar (label, waarde)-rijen."""
     if isinstance(obj, dict):
         return [(str(k), str(v)) for k, v in obj.items()]
     return [(str(x), '') for x in obj]
 
 
 def build_run_log(**facts) -> list:
+    """Pure formatter. Vormen:
+    entity_counts: DataFrame (country, kind, count); tam_status_counts: DataFrame
+    (company, sales_unit, core_product, country, in_tam, count); population_unknown: dict
+    {label: count}; ai_stats: dict; source_status: list[SourceStatus]; strays: list of
+    {company, core_product, sales_unit, rows}; new_detailed: set; warnings: list[str]."""
     log = []
 
     def section(title, rows):
@@ -76,18 +88,20 @@ def build_run_log(**facts) -> list:
     if facts.get('inputs'):
         section('Invoer', _rows_from(facts['inputs']))
     if facts.get('source_status'):
-        section('Bronnen', [(s.name, f"{'ok' if s.ok else 'FOUT'}; {s.rows} rijen; "
-                                     f"{s.source_date}; {s.message}") for s in facts['source_status']])
+        section('Bronnen', [(s.name, f'ok, {s.rows} rijen, {s.source_date}' if s.ok
+                             else f'FOUT: {s.message}') for s in facts['source_status']])
     if facts.get('entity_counts') is not None:
-        ec = facts['entity_counts']
-        if isinstance(ec, pd.DataFrame):
-            rows = [(str(idx), ', '.join(f'{c}={r[c]}' for c in ec.columns if r[c]))
-                    for idx, r in ec.iterrows()]
-        else:
-            rows = _rows_from(ec)
-        section('Aantallen per land x soort', rows)
+        df = facts['entity_counts']
+        _require(df, ['country', 'kind', 'count'], 'entity_counts')
+        section('Aantallen per land x soort',
+                [(f'{r.country} / {r.kind}', r.count) for r in df.itertuples()])
     if facts.get('tam_status_counts') is not None:
-        section('TAM per status', _rows_from(facts['tam_status_counts']))
+        df = facts['tam_status_counts']
+        _require(df, ['company', 'sales_unit', 'core_product', 'country', 'in_tam', 'count'],
+                 'tam_status_counts')
+        section('TAM per status',
+                [(f'{r.company} / {r.core_product} / {r.country} / {r.in_tam}', r.count)
+                 for r in df.itertuples()])
     if facts.get('population_unknown'):
         section('Inwonertal onbekend', _rows_from(facts['population_unknown']))
     if facts.get('ai_stats') or facts.get('spend') is not None:
@@ -96,8 +110,9 @@ def build_run_log(**facts) -> list:
             rows.append(('uitgaven (USD)', f"{facts['spend']:.2f}"))
         section('AI', rows)
     if facts.get('strays'):
-        section('Producten buiten lijst', [(str(s.get('name', s.get('product', ''))), json.dumps(s, ensure_ascii=False, default=str))
-                                           for s in facts['strays']])
+        section('Producten buiten lijst',
+                [(f"{s['company']} / {s['core_product']}", f"{s['sales_unit']}: {s['rows']} regels")
+                 for s in facts['strays']])
     if facts.get('new_detailed'):
         section('Nieuwe detailed-waarden', [('nieuw', ', '.join(sorted(facts['new_detailed'])))])
     if facts.get('warnings'):

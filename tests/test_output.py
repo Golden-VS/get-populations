@@ -30,8 +30,9 @@ def test_sheet_order_and_names(tmp_path):
     assert write_output(p, **frames()) == [p]
     wb = load_workbook(p)
     assert wb.sheetnames == ['TAM', 'CRM matches', 'Entities', 'Memberships', 'CRM unmatched', 'Run log']
+    for ws in wb.worksheets:
+        assert ws.freeze_panes == 'A2' and ws.auto_filter.ref, ws.title
     ws = wb['Entities']
-    assert ws.freeze_panes == 'A2' and ws.auto_filter.ref
     col = [c.value for c in ws[1]].index('official_ids')
     assert ws.cell(2, col + 1).value == '0001234'
 
@@ -58,3 +59,36 @@ def test_run_log_sections():
     assert ('== Bronnen ==', '') not in log
     assert ('== Invoer ==', '') in log and ('x', '1') in log
     assert any('Z' in v for _, v in log)
+
+
+def test_strays_and_branches():
+    from tam.entities import SourceStatus
+    log = build_run_log(
+        strays=[dict(company='C', core_product='P', sales_unit='S', rows=3)],
+        entity_counts=pd.DataFrame([dict(country='NL', kind='nl_gemeente', count=342)]),
+        tam_status_counts=pd.DataFrame([dict(company='C', sales_unit='S', core_product='P',
+                                             country='NL', in_tam='yes', count=5)]),
+        population_unknown={'NL': 2}, ai_stats={'calls': 4},
+        source_status=[SourceStatus('cbs', True, 10, '2026-01-01', ''),
+                       SourceStatus('x', False, 0, '', 'kapot')])
+    assert ('C / P', 'S: 3 regels') in log
+    assert ('NL / nl_gemeente', 342) in log
+    assert ('C / P / NL / yes', 5) in log
+    assert ('NL', '2') in log and ('calls', '4') in log
+    assert ('cbs', 'ok, 10 rijen, 2026-01-01') in log and ('x', 'FOUT: kapot') in log
+
+
+def test_bad_frames_raise():
+    import pytest
+    with pytest.raises(ValueError):
+        build_run_log(entity_counts=pd.DataFrame({'a': [1]}))
+    with pytest.raises(ValueError):
+        build_run_log(tam_status_counts=pd.DataFrame({'a': [1]}))
+
+
+def test_missing_cooperation_warns(tmp_path, caplog):
+    f = frames()
+    f['memberships'] = pd.DataFrame([['NL-X', 'NL-1', 'nl_gemeente', 'cooperation', '']],
+                                    columns=MEMBERSHIP_COLUMNS)
+    write_output(tmp_path / 'o.xlsx', **f)
+    assert 'NL-X' in caplog.text

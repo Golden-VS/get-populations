@@ -18,7 +18,8 @@ from pydantic import BaseModel
 from rapidfuzz import fuzz, process
 
 from step2_enrich import _plz_prefix_score, normalize
-from tam.ai import AIBatchError, AIRefusal, CostCapReached, call_parsed, estimate_cost
+from tam.ai import (AIBatchError, AIRefusal, CostCapReached, atomic_write_csv, call_parsed,
+                    estimate_cost)
 from tam.config import CRM_COUNTRY_TO_TAM, REFERENCE_DIR
 
 log = logging.getLogger(__name__)
@@ -470,9 +471,12 @@ REASON_NO_AI = 'AI overgeslagen (--no-ai)'
 REASON_CAP = 'kostenplafond bereikt'
 REASON_REFUSED = 'AI weigerde'
 REASON_FAILED = 'AI-fout'
-# Grove schatting per batch van 20 accounts met ~10 kandidaten (invoer incl. systeemprompt, uitvoer)
-EST_IN_TOKENS_PER_BATCH = 6000
-EST_OUT_TOKENS_PER_BATCH = 2500
+# Grove schatting per batch van 20 accounts: invoer 20 x tot 15 kandidaten x ~35 tokens plus
+# accountregels en systeemprompt; uitvoer incl. denkwerk bij effort medium
+EST_IN_TOKENS_PER_BATCH = 9000
+EST_OUT_TOKENS_PER_BATCH = 3000
+# Foutmeldingen van een mislukte batch alleen ingekort loggen (geen modeltekst in de log)
+ERROR_LOG_CHARS = 200
 
 MATCH_SYSTEM_PROMPT = """Je bent een analist overheidsdata. Je koppelt CRM-accounts (klantrecords
 uit een CRM-systeem) aan officiele overheidsorganisaties in Nederland, Belgie en Duitsland.
@@ -546,8 +550,7 @@ def _load_match_cache(path) -> dict[str, dict]:
 
 
 def _save_match_cache(path, rows: dict[str, dict]) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(list(rows.values()), columns=MATCH_CACHE_COLUMNS).to_csv(path, index=False)
+    atomic_write_csv(pd.DataFrame(list(rows.values()), columns=MATCH_CACHE_COLUMNS), path)
 
 
 def _cache_hit(cache: dict, accountid: str, name: str, chash: str) -> dict | None:
@@ -688,7 +691,9 @@ def pass2(rest: pd.DataFrame, entities, aliases, client, tracker, *, use_ai: boo
                 stats['refused'] += len(batch)
                 continue
             except AIBatchError as e:
-                log.warning('Matchbatch mislukt (%d accounts): %s', len(batch), e)
+                # alleen type en ingekorte melding: een validatiefout kan modeltekst bevatten
+                log.warning('Matchbatch mislukt (%d accounts): %s: %s', len(batch),
+                            type(e).__name__, str(e)[:ERROR_LOG_CHARS])
                 for pos, row, cands, _ in batch:
                     unmatched(pos, row, cands, REASON_FAILED)
                 stats['failed'] += len(batch)
@@ -708,7 +713,7 @@ def pass2(rest: pd.DataFrame, entities, aliases, client, tracker, *, use_ai: boo
                     stats['failed'] += 1
                     continue
                 entity_id = item.entity_id.strip()
-                if entity_id.lower() == NONE_ID:
+                if entity_id.lower() in (NONE_ID, ''):
                     unmatched(pos, row, cands, REASON_AI_NONE)
                     stats['ai_none'] += 1
                     entity_id = NONE_ID

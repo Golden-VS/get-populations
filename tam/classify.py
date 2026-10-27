@@ -10,7 +10,7 @@ from typing import Literal
 import pandas as pd
 from pydantic import BaseModel
 
-from tam.ai import (AIBatchError, AIRefusal, CostCapReached, call_parsed,
+from tam.ai import (AIBatchError, AIRefusal, CostCapReached, atomic_write_csv, call_parsed,
                     estimate_cost)
 from tam.config import DETAILED_SEGMENTS, KIND_TO_SEGMENT, MODEL, REFERENCE_DIR
 from tam.entities import slugify
@@ -95,11 +95,10 @@ def _rule(name: str) -> str | None:
 
 
 def _save_cache(path: Path, rows: dict) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(
+    atomic_write_csv(pd.DataFrame(
         [{'entity_id': k, 'name': v[0], 'detailed_segment': v[1], 'bron': v[2], 'datum': v[3]}
          for k, v in rows.items()], columns=CACHE_COLUMNS,
-    ).to_csv(path, index=False)
+    ), path)
 
 
 def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bool,

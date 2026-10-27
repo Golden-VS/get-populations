@@ -527,9 +527,10 @@ _BLOCK_RE = _re.compile(r'^volgnummer (\d+)\n  crm-naam: (.*)$', _re.MULTILINE)
 class FakeMatch:
     """Nep voor call_parsed: kiest per CRM-naam een vaste entity_id (standaard de eerste kandidaat)."""
 
-    def __init__(self, choose=None, exc=None):
+    def __init__(self, choose=None, exc=None, skip=()):
         self.choose = choose or {}
         self.exc = list(exc or [])
+        self.skip = set(skip)
         self.calls = []
 
     def __call__(self, client, tracker, **kw):
@@ -544,6 +545,8 @@ class FakeMatch:
             if not m:
                 continue
             n, name = int(m.group(1)), m.group(2)
+            if name in self.skip:
+                continue
             first = _re.search(r'^    (\S+) \| ', block, _re.MULTILINE)
             entity_id = self.choose.get(name, first.group(1) if first else 'none')
             items.append(mt.MatchItem(volgnummer=n, entity_id=entity_id, reason='zelfde gemeente',
@@ -755,6 +758,68 @@ def test_pass2_pending_counts_accounts_needing_ai(tmp_path, fake_ai):
 
 
 def test_estimate_matching_cost():
-    # 2 batches x (6000 x $4 + 2500 x $20) / 1e6 = 2 x 0.074
-    assert mt.estimate_matching_cost(21) == pytest.approx(0.148)
+    # 2 batches x (9000 x $4 + 3000 x $20) / 1e6 = 2 x 0.096
+    assert mt.estimate_matching_cost(21) == pytest.approx(0.192)
     assert mt.estimate_matching_cost(0) == 0
+
+
+# ---------- pass 2 review polish ----------
+
+def _cache_ids(tmp_path):
+    cache = pd.read_csv(tmp_path / 'match_cache.csv', dtype=str, keep_default_na=False)
+    return dict(zip(cache['accountid'], cache['entity_id']))
+
+
+def test_missing_volgnummer_is_ai_error_and_not_cached(tmp_path, fake_ai, caplog):
+    fake_ai(FakeMatch(skip={'Gemeente Bedorp'}))
+    with caplog.at_level('WARNING', logger='tam.matching'):
+        matched, unmatched, stats = run_pass2(_three_accounts(), tmp_path)
+    assert matched_ids(matched) == {'acc-0': 'NL-CBS-GM0003', 'acc-2': 'NL-CBS-GM0005'}
+    assert _reasons(unmatched) == {'acc-1': 'AI-fout'}
+    assert _cache_ids(tmp_path) == {'acc-0': 'NL-CBS-GM0003', 'acc-2': 'NL-CBS-GM0005'}
+    assert stats['failed'] == 1
+    assert any('acc-1' in r.getMessage() for r in caplog.records)
+
+
+def test_empty_entity_id_is_none_without_invalid_warning(tmp_path, fake_ai, caplog):
+    fake_ai(FakeMatch(choose={'Gemeente Aadorp': ''}))
+    with caplog.at_level('WARNING', logger='tam.matching'):
+        matched, unmatched, stats = run_pass2(crm(dict(name='Gemeente Aadorp')), tmp_path)
+    assert len(matched) == 0
+    assert _reasons(unmatched) == {'acc-0': 'AI: geen passende organisatie'}
+    assert stats['ai_none'] == 1 and stats['invalid_id'] == 0
+    assert not any('kandidatenlijst' in r.getMessage() for r in caplog.records)
+    assert _cache_ids(tmp_path) == {'acc-0': 'none'}
+
+
+def test_batch_error_log_is_truncated(tmp_path, fake_ai, caplog):
+    secret = 'modeltekst ' * 100  # 1100 tekens
+    fake_ai(FakeMatch(exc=[AIBatchError(secret)]))
+    with caplog.at_level('WARNING', logger='tam.matching'):
+        run_pass2(crm(dict(name='Gemeente Aadorp')), tmp_path)
+    messages = [r.getMessage() for r in caplog.records if 'Matchbatch mislukt' in r.getMessage()]
+    assert len(messages) == 1
+    assert 'AIBatchError' in messages[0]
+    assert secret not in messages[0]
+    assert len(messages[0]) < 300
+
+
+def _failing_to_csv(monkeypatch):
+    """to_csv schrijft half en faalt dan (schijf vol tijdens schrijven)."""
+    def broken(self, path=None, *args, **kwargs):
+        with open(path, 'w') as fh:
+            fh.write('half geschreven')
+        raise OSError('schijf vol')
+
+    monkeypatch.setattr(pd.DataFrame, 'to_csv', broken)
+
+
+def test_match_cache_write_failure_keeps_previous_cache(tmp_path, fake_ai, monkeypatch):
+    fake_ai(FakeMatch())
+    run_pass2(crm(dict(name='Gemeente Aadorp')), tmp_path)
+    before = (tmp_path / 'match_cache.csv').read_text()
+    _failing_to_csv(monkeypatch)
+    with pytest.raises(OSError):
+        run_pass2(crm(dict(name='Gemeente Aadorp'), dict(name='Gemeente Bedorp')), tmp_path)
+    assert (tmp_path / 'match_cache.csv').read_text() == before
+    assert not (tmp_path / 'match_cache.csv.part').exists()

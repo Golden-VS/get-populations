@@ -1,10 +1,26 @@
-"""Claude-wrapper met kostenbewaking en kostenplafond."""
+"""Claude-wrapper met kostenbewaking en kostenplafond, plus atomair wegschrijven van AI-caches."""
 import math
+import os
+from pathlib import Path
 
 import anthropic
+import pandas as pd
 from pydantic import ValidationError
 
 from tam.config import MODEL, PRICES_PER_MTOK
+
+
+def atomic_write_csv(df: pd.DataFrame, path) -> None:
+    """CSV schrijven via '<bestand>.part' + os.replace: een fout laat het oude bestand heel."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_name(path.name + '.part')
+    try:
+        df.to_csv(part, index=False)
+        os.replace(part, path)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
 
 
 class CostCapReached(Exception):

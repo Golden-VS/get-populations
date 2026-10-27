@@ -186,3 +186,21 @@ def test_cost_cap_cache_keeps_only_batch_one(tmp_path, patch):
     cache = pd.read_csv(tmp_path / 'c.csv', dtype=str)
     assert list(cache['entity_id']) == ['X-0']
     assert list(cache['detailed_segment']) == ['Waste management']
+
+
+def test_cache_write_failure_keeps_previous_cache(tmp_path, patch, monkeypatch):
+    patch(Fake())
+    run(_ents(('Samenwerking A', 'nl_samenwerking')), tmp_path, None)
+    before = (tmp_path / 'c.csv').read_text()
+
+    def broken(self, path=None, *args, **kwargs):
+        with open(path, 'w') as fh:
+            fh.write('half geschreven')
+        raise OSError('schijf vol')
+
+    monkeypatch.setattr(pd.DataFrame, 'to_csv', broken)
+    with pytest.raises(OSError):
+        run(_ents(('Samenwerking A', 'nl_samenwerking'), ('Samenwerking B', 'nl_samenwerking')),
+            tmp_path, None)
+    assert (tmp_path / 'c.csv').read_text() == before
+    assert not (tmp_path / 'c.csv.part').exists()

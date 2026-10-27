@@ -269,8 +269,8 @@ cached by `entity_id` and only re-classified when the name changes.
 `canonical_name`, `Segment`, `Segment (category)`.
 
 **Scope**: every account whose `detected_country` is NL, BE, DE, a Caribbean
-code (AW, CW, SX, BQ; matched against NL entities) or UNKNOWN (matched against
-all three countries), EXCEPT accounts that are confidently commercial
+code (AW, CW, SX, BQ; matched against NL entities). Accounts with
+`detected_country = OTHER` (foreign, ~145) are out of scope. EXCEPT accounts that are confidently commercial
 (`detected_type = commercieel` and `Segment (category) = Commercial` and high
 segment confidence). Non-profit and utility/IT-labelled accounts stay in scope,
 because step 1b files many cooperations there. Cost stays low because pass 2

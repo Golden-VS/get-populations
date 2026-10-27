@@ -221,10 +221,19 @@ real run with `--refresh-cache` -> review low-confidence matches and
   before relying on it commercially.
 - First real run on `input_crm_27-10-2026.csv` still to be reviewed with the
   user (steps 1 and 1b were already re-run on it).
-- Known data limitations (also in MANUAL): police zones 552/565 BE (DG gap),
-  Aruba/FWB population unknown, 28 Saxon VGs as Verband fallback, most IT
-  Zweckverbaende and all other Zweckverbaende population unknown, sparse
-  predecessor aliases for BE/DE, NL GR member codes of dissolved municipalities
+- Final fix wave (2026-10-27, after the first real run): DE pass-1 narrowing
+  needs a close postcode, no name rule without a compatible type, BE
+  predecessor aliases from the OP dump, stale-cache fallback for failed
+  downloads, NL cooperation classification uses the register 'doel' text
+  (classify cache gained `input_hash`, so the next real run reclassifies all
+  cooperations once, roughly $1-3), worst-case cost-cap check, template
+  duplicate check, `notes` column, run-log open points and loader warnings.
+- Known data limitations (also in MANUAL): 552 of 565 BE municipalities
+  covered by a police zone (DG gap), Aruba/FWB population unknown, 28 Saxon
+  VGs as Verband fallback, most IT Zweckverbaende and all other Zweckverbaende
+  population unknown, KVJS and Bezirksverband Pfalz member sets cited from
+  secondary sources, sparse predecessor aliases for Wallonia/DE (Flemish
+  mergers come from the OP dump), NL GR member codes of dissolved municipalities
   (Jeugdhulp Rijnmond) understate population, Walloon/Brussels
   intercommunales population unknown, no KBO register.
 - Deferred (spec 12 and 14): step 2 upgrade to the official registers (open

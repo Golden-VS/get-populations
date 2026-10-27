@@ -458,13 +458,15 @@ filled in. The business fills in:
 
 | Column | Rule |
 |---|---|
-| `segments` | One or more detailed segments for this product and country, separated by `;` (for example `Municipality;Province`). Allowed values are listed on sheet `lists`. **Rows with empty `segments` are skipped.** |
-| `excluded_kinds` | Optional. Detailed segments to leave out again, separated by `;`. Useful when a product fits a whole group except a few kinds. |
+| `segments` | One or more top-level segments for this product and country, separated by `;`: `Local government`, `Regional government`, `National government`, `Inter-municipal cooperation`, `Public safety & emergency` (for example `Local government;Inter-municipal cooperation`). Allowed values are in the first column of sheet `lists`. **Rows with empty `segments` are skipped.** |
+| `excluded_kinds` | Optional. Detailed segments (second column of sheet `lists`) to leave out again, separated by `;` (for example `City district;Municipal autonomous agency`). This narrows the top-level segments when a product fits a whole group except a few kinds. |
 | `min_population` | Optional whole number. Entities below it are marked `no - below cutoff`. Empty means no cut-off. |
-| `notes` | Free text, copied to the output. |
+| `notes` | Free text, copied to the output (last column of sheet `TAM`). |
 
 An unknown value stops the run with a message that names the row and the
-value, so typos are caught before anything costs money. The segment values are
+value, so typos are caught before anything costs money. Two filled rows for
+the same company, core product and country also stop the run (they would count
+the TAM twice). The segment values are
 a fixed list (also the join key for the factor table in Power BI), so do not
 rename them between years.
 
@@ -501,11 +503,23 @@ Useful options:
 | `--max-cost <usd>` | Cost cap for this run (default 50) |
 
 **Cost cap.** The tool prints its estimate before any AI call and tracks the
-real spend during the run. If the cap would be exceeded it stops cleanly, the
+real spend during the run. Before each AI call it checks the worst case of
+that call (the prompt plus the longest possible answer), so the cap is never
+passed. If the cap would be exceeded it stops cleanly, the
 caches are saved, and a re-run resumes where it stopped. Governmental accounts
 are processed first, so a cap never starves them. Because both AI steps cache
 their answers (cooperation classification per entity, matches per account), a
 repeat run costs very little.
+
+**Cooperation classification.** Cooperations get their detailed segment from
+the AI, based on name, country, kind, member count and, for Dutch
+cooperations, the purpose text ("doel") from the government register. A
+cooperation is classified again only when its name or purpose text changes.
+
+**Register downloads that fail.** If a register cannot be downloaded but an
+older copy is in `reference/`, the tool uses that copy, logs a warning and
+marks the source in the run log with "verouderde cache, datum ..." (the date of
+the cached file). Only a source without any cached copy fails.
 
 ### Step D: reading the output
 
@@ -513,12 +527,12 @@ The result is `tam_<date>.xlsx` (gitignored) with these sheets:
 
 | Sheet | Contents | Use in Power BI |
 |---|---|---|
-| `TAM` | One row per (template row x entity in the selected segments): company, sales unit, core product, country, `entity_id`, name, `detailed_segment`, `population`, `in_tam`, `in_tam_reason`, number of matched accounts | The white space base |
+| `TAM` | One row per (template row x entity in the selected segments): company, sales unit, core product, country, `entity_id`, name, `detailed_segment`, `population`, `in_tam`, `in_tam_reason`, number of matched accounts, `notes` from the template | The white space base |
 | `CRM matches` | One row per matched account: `entity_id`, `accountid`, CRM name, `match_pass`, `match_reason`, `confidence` | Join revenue per `accountid` to `entity_id`, then to `TAM` (black space) |
 | `Entities` | The full master list with all attributes (kind, region, ids, population method, source and date) | Audit, optional dimension table |
 | `Memberships` | Cooperation `entity_id` -> member `entity_id`, with the cooperation's `detailed_segment` and join date | Members of a paying cooperation count as covered |
 | `CRM unmatched` | Governmental or unknown CRM accounts in NL/BE/DE without an entity, with best candidate and why it was rejected. Accounts abroad that step 1b marked Governmental appear with reason "land buiten scope" | Spot paying customers that are missing in the TAM |
-| `Run log` | Inputs, per-source status and dates, counts per country and kind, counts per `in_tam` status, population-unknown counts, AI calls and cache hits, product strays, new segment values | Check after every run |
+| `Run log` | Inputs (including the modification date of the CRM file), per-source status and dates, counts per country and kind, counts per `in_tam` status, population-unknown counts, AI calls and cache hits, product strays, new segment values, open points, and warnings (including source-level warnings from the register loaders) | Check after every run |
 
 **`in_tam` values**
 
@@ -533,7 +547,7 @@ The result is `tam_<date>.xlsx` (gitignored) with these sheets:
 
 | Value | Meaning |
 |---|---|
-| `rule` | Free, deterministic: exact company number (KvK/KBO) or unique normalised name within a compatible kind, with postcode as tie-break for German municipalities |
+| `rule` | Free, deterministic: exact company number (KvK/KBO) or unique normalised name within a kind compatible with the account's type from step 1. German same-name hits are decided by postcode; when the rule had to choose between kinds (for example a municipality and an Amt that has a member with that name) it only matches if the account's postcode is close to the chosen entity and no farther than the alternatives. Accounts without a recognised governmental type never match on name here; they go to the AI step |
 | `ai` | The AI chose between a shortlist of candidates |
 | `override` | Set by you in `match_overrides` |
 
@@ -554,7 +568,9 @@ chained.
    (CRM `accountid` and the `entity_id` it belongs to; an empty `entity_id`
    means "this account is not a TAM entity"), then run again. Overrides win
    over rules and AI. An override pointing at an unknown `entity_id` is
-   reported as an ERROR in the run log, not silently skipped.
+   reported as an ERROR in the run log, not silently skipped. An override for
+   an `accountid` that is not in the CRM file is ignored with a warning in the
+   run log.
 
 ### Yearly refresh
 
@@ -589,12 +605,22 @@ chained.
 
 These are visible in the `Run log`; none stops the run.
 
-- **Belgian police zones**: 552 of 565 zones are covered (the German-speaking
-  community and a few others are missing in the source table).
+- **Belgian police zones**: 552 of 565 municipalities are covered by a police
+  zone (the German-speaking community and a few others are missing in the
+  source table).
 - **Population unknown**: Aruba and the Walloon-Brussels Federation,
   Walloon and Brussels intercommunales (no member lists), most German
   Zweckverbaende and 28 of 30 IT Zweckverbaende. They appear with
   `population_method = unknown`.
+- **Two member lists cite secondary sources**: the members of the KVJS
+  (Baden-Wuerttemberg) and of the Bezirksverband Pfalz are the sets fixed by
+  law (all Stadt- and Landkreise of the Land; the Kreise of the former
+  Regierungsbezirk Pfalz), cited from a legal text mirror and a state civic
+  education publication because the official law portals could not be read as
+  text.
+- **Licence of the Flemish organisation portal dump** (Belgian police zones,
+  AGBs, cooperations) is not stated in its metadata; the run log lists this as
+  an open point.
 - **28 Saxon Verwaltungsgemeinschaften** could not be tied to their executing
   municipality and are modelled as Verband entities, so they are segmented as
   Municipal federation.
@@ -602,7 +628,9 @@ These are visible in the `Run log`; none stops the run.
   after a merger, for example a youth care cooperation in the Rotterdam area)
   understate their population; old codes are not remapped.
 - **Predecessor aliases** (CRM accounts still named after a merged municipality)
-  are sparse for BE and DE; unmatched ones show up in `CRM unmatched`.
+  come from Wikidata and, for Flanders, from the 2019 and 2025 mergers in the
+  Flemish organisation portal. They are sparse for Wallonia and DE; unmatched
+  ones show up in `CRM unmatched`.
 - **No KBO register yet**: Belgian matching on company number only works where
   the Flemish portal carries it.
 - A KvK/KBO number shared by several entities is never used for a rule match;

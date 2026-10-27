@@ -58,9 +58,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from step2_enrich import CBS_ODATA_URL, NL_WATERSCHAP_INWONERS, discover_cbs_gebieden_table, normalize
+from step2_enrich import (CBS_ODATA_URL, NL_STADSDEEL_INWONERS, NL_WATERSCHAP_INWONERS,
+                          discover_cbs_gebieden_table, normalize)
+from tam import hand_tables
 from tam.config import USER_AGENT
-from tam.entities import SourceBundle, SourceStatus, make_entity_id, new_entity
+from tam.entities import ALIAS_COLUMNS, SourceBundle, SourceStatus, make_entity_id, new_entity
 from tam.sources.common import SourceCache
 
 log = logging.getLogger(__name__)
@@ -426,12 +428,6 @@ def load_nl_oo(cache: SourceCache) -> SourceBundle:
 # ---------------------------------------------------------------------------
 # NL-handrijen: Amsterdamse stadsdelen, openbare lichamen BES, Caribische landen
 # ---------------------------------------------------------------------------
-from step2_enrich import NL_STADSDEEL_INWONERS  # noqa: E402
-from tam import hand_tables  # noqa: E402
-
-_HAND_ALIAS_COLUMNS = ['alias_name', 'country', 'entity_id', 'reason']
-
-
 def _hand_entity(eid, name, kind, row, region=''):
     pop = row.get('population')
     return new_entity(
@@ -459,10 +455,10 @@ def load_nl_hand() -> SourceBundle:
             continue
         value = NL_STADSDEEL_INWONERS[keys[0]]
         rows.append(_hand_entity(fixed['id'], fixed['name'], 'nl_stadsdeel', value, region='Amsterdam'))
-        for k in keys:
-            if k != fixed['name'] and k != 'Weesp':
-                aliases.append({'alias_name': k, 'country': 'NL', 'entity_id': fixed['id'],
-                                'reason': 'andere naam (stadsdeeltabel)'})
+        # Geen kale step2-sleutels ('Centrum', 'Noord') als alias: te algemeen
+        for alias in fixed.get('aliases', []):
+            aliases.append({'alias_name': alias, 'country': 'NL', 'entity_id': fixed['id'],
+                            'reason': 'andere naam (handtabel)'})
 
     for table, kind in ((hand_tables.NL_OPENBARE_LICHAMEN, 'nl_openbaar_lichaam'),
                         (hand_tables.NL_LANDEN_CARIBISCH, 'nl_land_caribisch')):
@@ -477,7 +473,7 @@ def load_nl_hand() -> SourceBundle:
 
     bundle = SourceBundle.empty()
     bundle.entities = pd.DataFrame(rows, columns=bundle.entities.columns)
-    bundle.aliases = pd.DataFrame(aliases, columns=_HAND_ALIAS_COLUMNS)
+    bundle.aliases = pd.DataFrame(aliases, columns=ALIAS_COLUMNS)
     counts = bundle.entities['kind'].value_counts().to_dict()
     msg = ', '.join(f'{v} {k}' for k, v in sorted(counts.items()))
     bundle.status.append(SourceStatus('nl_hand', True, len(rows), '', msg))

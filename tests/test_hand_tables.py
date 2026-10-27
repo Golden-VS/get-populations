@@ -46,5 +46,7 @@ def test_load_nl_hand():
     assert bon['population'] == 27611 and bon['population_method'] == 'own'
     aw = b.entities[b.entities.entity_id == 'NL-HAND-ARUBA'].iloc[0]
     assert pd.isna(aw['population']) and aw['population_method'] == 'unknown'
-    assert 'Centrum' in set(b.aliases.alias_name)
+    alias_names = set(b.aliases.alias_name)
+    assert 'Stadsdeel Centrum' in alias_names
+    assert not alias_names & {'Centrum', 'Noord', 'Oost', 'Zuid', 'West', 'Zuidoost', 'Nieuw-West', 'Weesp'}
     assert b.status[0].name == 'nl_hand' and b.status[0].ok

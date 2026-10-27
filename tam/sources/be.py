@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import logging
 import re
+import warnings
 import zipfile
 from collections import defaultdict
 from datetime import date
@@ -76,11 +77,10 @@ import requests
 from step2_enrich import BE_POLITIEZONE_GEMEENTEN, normalize
 from tam import hand_tables
 from tam.config import USER_AGENT
-from tam.entities import SourceBundle, SourceStatus, make_entity_id, new_entity, slugify
+from tam.entities import ALIAS_COLUMNS, SourceBundle, SourceStatus, make_entity_id, new_entity, slugify
 
 log = logging.getLogger(__name__)
 
-_ALIAS_COLUMNS = ['alias_name', 'country', 'entity_id', 'reason']
 _PATCH_COLUMNS = ['entity_id', 'official_ids']
 
 
@@ -192,7 +192,7 @@ DG_NIS = {'63001', '63012', '63013', '63023', '63040', '63048', '63061', '63067'
 _FR_PROVINCES = {'20002', '50000', '60000', '80000', '90000'}
 BRUSSELS_REGION = 'Brussels Hoofdstedelijk Gewest'
 
-STATBEL_POP_URL = ('https://statbel.fgov.be/sites/default/files/files/opendata/'
+STATBEL_POP_ZIP_URL = ('https://statbel.fgov.be/sites/default/files/files/opendata/'
                    'bevolking%20naar%20woonplaats%2C%20nationaliteit%20burgelijke%20staat%20%2C'
                    '%20leeftijd%20en%20geslacht/TF_SOC_POP_STRUCT_{year}.zip')
 
@@ -272,20 +272,32 @@ def parse_statbel_population(zip_path: Path) -> dict[str, int]:
     return parse_statbel(zip_path)[0]
 
 
+def _valid_zip(path: Path) -> bool:
+    """Geldige zip; anders (bv. een HTML-foutpagina) wordt het bestand verwijderd."""
+    if zipfile.is_zipfile(path):
+        return True
+    log.warning('Statbel: %s is geen geldige zip; verwijderd', path.name)
+    path.unlink(missing_ok=True)
+    return False
+
+
 def _statbel_file(cache):
-    """(pad, jaar) van de nieuwste Statbel-editie: live proberen, anders de cache."""
+    """(pad, jaar) van de nieuwste geldige Statbel-editie: live proberen, anders de cache."""
     if not cache.offline:
         this_year = date.today().year
         for year in (this_year, this_year - 1, this_year - 2):
             try:
-                path = cache.fetch(f'be_statbel_pop_{year}', STATBEL_POP_URL.format(year=year),
+                path = cache.fetch(f'be_statbel_pop_{year}', STATBEL_POP_ZIP_URL.format(year=year),
                                    suffix='.zip')
-                return path, year
             except Exception as e:  # noqa: BLE001
                 log.info('Statbel %s niet beschikbaar (%s)', year, e)
-    cached = sorted(cache.base_dir.glob('be_statbel_pop_*.zip'), reverse=True)
-    if cached:
-        return cached[0], int(re.search(r'(\d{4})', cached[0].name).group(1))
+                continue
+            if _valid_zip(path):
+                return path, year
+    for path in sorted(cache.base_dir.glob('be_statbel_pop_*.zip'), reverse=True):
+        m = re.search(r'(\d{4})', path.name)
+        if m and _valid_zip(path):
+            return path, int(m.group(1))
     return None, None
 
 
@@ -361,7 +373,7 @@ def load_be_wikidata(cache) -> SourceBundle:
         log.warning('BE: %d gemeenten, verwacht 560-570 (na de Vlaamse fusies van 2025: 565)', n_gem)
     bundle.entities = pd.DataFrame(rows, columns=bundle.entities.columns)
     bundle.memberships = pd.DataFrame(members, columns=bundle.memberships.columns)
-    bundle.aliases = pd.DataFrame(aliases, columns=_ALIAS_COLUMNS)
+    bundle.aliases = pd.DataFrame(aliases, columns=ALIAS_COLUMNS)
     bundle.extras['municipal_population'] = muni_pop
     bundle.extras['be_gemeente_names'] = pd.DataFrame(names, columns=['entity_id', 'name'])
     msg = (f'{n_gem} gemeenten ({sum(1 for n in gem["nis"] if n in statbel_pop)} met Statbel-'
@@ -402,7 +414,7 @@ _P = {
 _T_ORG = 'http://data.vlaanderen.be/ns/besluit#Bestuurseenheid'
 _T_MEMBERSHIP = 'http://www.w3.org/ns/org#Membership'
 _T_CHANGE = 'http://www.w3.org/ns/org#ChangeEvent'
-_STMT = re.compile(r'^(<[^>]*>|_:\S+)\s+(<[^>]*>)\s+(.*?)\s*\.\s*$', re.S)
+_STMT = re.compile(r'^(<[^>]*>|_:\S+)\s+(<[^>]*>)\s+(\S.*?)\s*\.\s*$', re.S)
 _LIT = re.compile(r'^(?:"""(.*)"""|"(.*)")(?:@[\w-]+|\^\^<[^>]*>)?$', re.S)
 _REFNIS = re.compile(r'/refnis\d*/(\d{5})$')
 
@@ -435,8 +447,9 @@ def _object(o: str) -> str:
     return v.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t').replace('\\\\', '\\')
 
 
-def iter_triples(path: Path):
-    """Regel voor regel lezen; literals met \"\"\" mogen over meerdere regels lopen."""
+def iter_triples(path: Path, stats: dict | None = None):
+    """Regel voor regel lezen; literals met \"\"\" mogen over meerdere regels lopen.
+    stats['bad'] telt de onleesbare statements."""
     buf = ''
     with open(path, encoding='utf-8') as f:
         for line in f:
@@ -454,6 +467,8 @@ def iter_triples(path: Path):
             if m:
                 yield m.group(1), m.group(2), m.group(3)
             else:
+                if stats is not None:
+                    stats['bad'] = stats.get('bad', 0) + 1
                 log.debug('OP-dump: onleesbare regel %r', s[:120])
 
 
@@ -462,7 +477,8 @@ class _OpGraph:
 
     def __init__(self, path: Path):
         self.p: dict[str, dict[str, list[str]]] = {v: defaultdict(list) for v in _P.values()}
-        for s, p, o in iter_triples(path):
+        self.stats: dict[str, int] = {'bad': 0}
+        for s, p, o in iter_triples(path, self.stats):
             short = _P.get(p)
             if short is None:
                 continue
@@ -534,8 +550,19 @@ def parse_op_dump(nt_path: Path, gemeenten: pd.DataFrame, source_date: str = '')
     kept = {s: KIND_BY_CLASS[g.cls(s)] for s in orgs if g.cls(s) in KIND_BY_CLASS and g.active(s)}
     n_starting = sum(1 for s in orgs if g.cls(s) in KIND_BY_CLASS
                      and g.label(g.one('status', s)).strip().lower() == 'in oprichting')
+    if g.stats['bad']:
+        log.warning('OP-dump: %d onleesbare statements overgeslagen', g.stats['bad'])
+    if not kept:
+        msg = (f'geen actieve organisaties van de gezochte soorten herkend in {len(orgs)} '
+               f'bestuurseenheden ({g.stats["bad"]} onleesbare statements); formaat gewijzigd?')
+        log.error('OP-dump: %s', msg)
+        bundle = SourceBundle.empty()
+        bundle.status.append(SourceStatus('be_op', False, 0, source_date, msg))
+        return bundle
     ids = {s: _op_entity_id(g, s) for s in kept}
     unresolved: list[str] = []
+    # Botsingsregel voor kale districtsnamen: niet gelijk aan een gemeente- of provincienaam
+    taken_names = set(index) | {name_key(g.label(s)) for s in orgs if g.cls(s) in ('gemeente', 'provincie')}
 
     def gemeente_id(s):
         code = g.nis(s)
@@ -585,11 +612,17 @@ def parse_op_dump(nt_path: Path, gemeenten: pd.DataFrame, source_date: str = '')
     for s, kind in kept.items():
         eid = ids[s]
         name = g.name(s)
+        bare = []
+        if kind == 'be_district' and not name.lower().startswith('district'):
+            bare = [name] if name_key(name) not in taken_names else []
+            name = f'District {name}'
         rows.append(new_entity(
             entity_id=eid, name=name, country='BE', kind=kind,
             population_method=METHOD_BY_KIND[kind], official_ids=f'kbo:{g.kbo(s)}' if g.kbo(s) else '',
             source=OP_SOURCE, source_date=source_date))
         alts = [g.label(s)] + [re.sub(r'^\d{3,5}\s+', '', a) for a in g.p['altLabel'].get(s, [])]
+        if kind == 'be_district':
+            alts = bare + [a for a in alts if name_key(a) not in taken_names]
         aliases.extend(_alias_rows(eid, name, alts, 'andere naam (OP-dump)'))
         if kind == 'be_agb':
             ordered = sorted(memberships.get(s, []), key=lambda rm: _MEMBER_ROLES.index(rm[0]))
@@ -648,12 +681,12 @@ def parse_op_dump(nt_path: Path, gemeenten: pd.DataFrame, source_date: str = '')
     bundle = SourceBundle.empty()
     bundle.entities = pd.DataFrame(rows, columns=bundle.entities.columns)
     bundle.memberships = pd.DataFrame(list(members.values()), columns=bundle.memberships.columns)
-    bundle.aliases = pd.DataFrame(aliases, columns=_ALIAS_COLUMNS)
+    bundle.aliases = pd.DataFrame(aliases, columns=ALIAS_COLUMNS)
     bundle.extras['id_patches'] = pd.DataFrame(list(patches.values()), columns=_PATCH_COLUMNS)
     counts = bundle.entities['kind'].value_counts().to_dict() if len(rows) else {}
     msg = (', '.join(f'{v} {k}' for k, v in sorted(counts.items())) +
            f'; {len(members)} lidmaatschappen, {len(patches)} KBO-patches, '
-           f'{len(set(unresolved))} niet gekoppeld')
+           f'{len(set(unresolved))} niet gekoppeld, {g.stats["bad"]} onleesbare statements')
     log.info('OP: %s', msg)
     bundle.status.append(SourceStatus('be_op', True, len(rows), source_date, msg))
     return bundle
@@ -723,7 +756,10 @@ def _spw_file(cache):
 
 def parse_spw_intercommunales(xlsx_path: Path) -> list[str]:
     """Namen uit kolom A van het blad 'Intercommunales' (rij 1 = kop)."""
-    wb = openpyxl.load_workbook(xlsx_path, read_only=True)
+    with warnings.catch_warnings():
+        # Het SPW-bestand heeft een printbereik op een tabelnaam; openpyxl waarschuwt onschuldig
+        warnings.filterwarnings('ignore', message='Print area cannot be set', category=UserWarning)
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True)
     try:
         sheet = next(ws for ws in wb.worksheets if ws.title.strip().lower().startswith('intercommunale'))
         names = []
@@ -767,6 +803,10 @@ def _hand_row(row, name, kind, method):
 def load_be_wb(cache, gemeenten: pd.DataFrame, flemish_nis: set[str]) -> SourceBundle:
     index = build_name_index(gemeenten)
     flemish = {_nis(c) for c in flemish_nis}
+    index_ids = set().union(*index.values()) if index else set()
+    first_name = {}
+    if gemeenten is not None and len(gemeenten):
+        first_name = dict(gemeenten.drop_duplicates('entity_id')[['entity_id', 'name']].values)
 
     def not_flemish(eid):
         # Naam in W/B-bronnen met twee kandidaten (Saint-Nicolas = ook Sint-Niklaas in het Frans)
@@ -796,7 +836,15 @@ def load_be_wb(cache, gemeenten: pd.DataFrame, flemish_nis: set[str]) -> SourceB
         members.extend(_coop_rows(eid, ids))
         n_pz += 1
     notes.append(f'{n_pz} W/B-politiezones ({n_fl} met Vlaams lid overgeslagen, {n_empty} zonder leden; '
-                 f'tabel heeft {len(BE_POLITIEZONE_GEMEENTEN)} van ~176 zones)')
+                 f'tabel heeft {len(BE_POLITIEZONE_GEMEENTEN)} zones)')
+    # Dekking: niet-Vlaamse gemeenten zonder W/B-politiezone (tegenhanger van de OP-controle)
+    wb_gem = {i for i in index_ids if not is_flemish_nis(i)}
+    covered = {m['member_entity_id'] for m in members}
+    missing = sorted(wb_gem - covered)
+    if missing:
+        log.warning('W/B: %d niet-Vlaamse gemeenten zonder politiezone: %s', len(missing),
+                    ', '.join(f'{i} ({first_name.get(i, "")})' for i in missing))
+        notes.append(f'{len(missing)} niet-Vlaamse gemeenten zonder politiezone')
 
     # Hulpverleningszones W/B (handtabel)
     for name, row in hand_tables.BE_HULPVERLENINGSZONES_WB.items():
@@ -810,9 +858,11 @@ def load_be_wb(cache, gemeenten: pd.DataFrame, flemish_nis: set[str]) -> SourceB
     try:
         spw = parse_spw_intercommunales(_spw_file(cache))
         for name in spw:
+            # id op de volledige naam (stabiel); match_name zonder toelichting tussen haakjes
+            match_name = re.sub(r'\s*\([^)]*\)', '', name).strip() or name
             rows.append(new_entity(
-                entity_id=make_entity_id('BE', 'SPW', slugify(name)), name=name, country='BE',
-                kind='be_intercommunale', population_method='unknown', source=SPW_SOURCE,
+                entity_id=make_entity_id('BE', 'SPW', slugify(name)), name=name, match_name=match_name,
+                country='BE', kind='be_intercommunale', population_method='unknown', source=SPW_SOURCE,
                 source_date=run_date))
         notes.append(f'{len(spw)} Waalse intercommunales')
     except Exception as e:  # noqa: BLE001
@@ -836,7 +886,7 @@ def load_be_wb(cache, gemeenten: pd.DataFrame, flemish_nis: set[str]) -> SourceB
     bundle = SourceBundle.empty()
     bundle.entities = pd.DataFrame(rows, columns=bundle.entities.columns)
     bundle.memberships = pd.DataFrame(members, columns=bundle.memberships.columns)
-    bundle.aliases = pd.DataFrame(aliases, columns=_ALIAS_COLUMNS)
+    bundle.aliases = pd.DataFrame(aliases, columns=ALIAS_COLUMNS)
     msg = '; '.join(notes)
     log.info('BE W/B: %s', msg)
     bundle.status.append(SourceStatus('be_wb', True, len(rows), run_date, msg))

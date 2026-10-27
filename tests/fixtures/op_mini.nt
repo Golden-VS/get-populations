@@ -108,3 +108,20 @@ de OCMW's van Alfadorp en Sint-Bétadorp.
 <http://ex.org/m/8> <http://www.w3.org/ns/org#organization> <http://ex.org/org/wv1>.
 <http://ex.org/m/8> <http://www.w3.org/ns/org#member> <http://ex.org/org/g2>.
 <http://ex.org/m/8> <http://www.w3.org/ns/org#role> <http://ex.org/role/gerelateerd>.
+<http://ex.org/cls/district> <http://www.w3.org/2004/02/skos/core#prefLabel> """District""".
+<http://ex.org/org/d1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/d1> <http://www.w3.org/2004/02/skos/core#prefLabel> """Wijkveld""".
+<http://ex.org/org/d1> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/district>.
+<http://ex.org/org/d1> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/d1> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/d1kbo>.
+<http://ex.org/id/d1kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/d1kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/d1kbo>.
+<http://ex.org/gi/d1kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """2166000001""".
+<http://ex.org/org/d2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/d2> <http://www.w3.org/2004/02/skos/core#prefLabel> """Alfadorp""".
+<http://ex.org/org/d2> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/district>.
+<http://ex.org/org/d2> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/d2> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/d2kbo>.
+<http://ex.org/id/d2kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/d2kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/d2kbo>.
+<http://ex.org/gi/d2kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """2166000002""".

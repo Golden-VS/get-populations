@@ -32,7 +32,8 @@ def _members(b, eid):
 def test_op_inactive_skipped():
     b = _op()
     assert 'BE-KBO-0800000001' not in set(b.entities.entity_id)
-    assert set(b.entities.entity_id) == {'BE-KBO-0862000001', 'BE-KBO-0505000001', 'BE-KBO-0682000001'}
+    assert set(b.entities.entity_id) == {'BE-KBO-0862000001', 'BE-KBO-0505000001', 'BE-KBO-0682000001',
+                                         'BE-KBO-2166000001', 'BE-KBO-2166000002'}
 
 
 def test_op_members_mapped_to_nis():
@@ -74,6 +75,31 @@ def test_op_aliases_from_other_labels():
     assert 'Welzijn Samen' in set(a.alias_name)
 
 
+def test_op_district_named_with_bare_alias_unless_collision():
+    b = _op()
+    e = b.entities.set_index('entity_id')
+    assert e.loc['BE-KBO-2166000001', 'name'] == 'District Wijkveld'
+    assert e.loc['BE-KBO-2166000002', 'name'] == 'District Alfadorp'
+    assert e.loc['BE-KBO-2166000001', 'kind'] == 'be_district'
+    a = b.aliases
+    assert 'Wijkveld' in set(a[a.entity_id == 'BE-KBO-2166000001'].alias_name)
+    # 'Alfadorp' is ook een gemeentenaam: geen kale alias
+    assert 'Alfadorp' not in set(a[a.entity_id == 'BE-KBO-2166000002'].alias_name)
+
+
+def test_op_without_kept_orgs_is_not_ok_and_counts_bad_lines(tmp_path):
+    nt = tmp_path / 'broken.nt'
+    nt.write_text(
+        '<http://ex.org/org/g1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> '
+        '<http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.\n'
+        'dit is geen triple.\n'
+        '<http://ex.org/a> <http://ex.org/p> .\n', encoding='utf-8')
+    b = parse_op_dump(nt, GEMEENTEN)
+    st = b.status[0]
+    assert st.name == 'be_op' and not st.ok and len(b.entities) == 0
+    assert '2 onleesbare' in st.message
+
+
 # ---- W/B ----
 
 def test_flemish_nis_rule():
@@ -81,7 +107,7 @@ def test_flemish_nis_rule():
     assert not any(is_flemish_nis(c) for c in ['21004', '25005', '52011', '62063', '63023', '85009', '92094'])
 
 
-def test_wb_police_excludes_zones_with_any_flemish_member(tmp_path, monkeypatch):
+def test_wb_police_excludes_zones_with_any_flemish_member(tmp_path, monkeypatch, caplog):
     from tam.sources import be
     monkeypatch.setattr(be, 'BE_POLITIEZONE_GEMEENTEN', {
         'Waals': ['Luik', 'Seraing', 'Saint-Nicolas'],
@@ -96,13 +122,19 @@ def test_wb_police_excludes_zones_with_any_flemish_member(tmp_path, monkeypatch)
         {'entity_id': 'BE-NIS-62093', 'name': 'Saint-Nicolas'},
         {'entity_id': 'BE-NIS-46021', 'name': 'Sint-Niklaas'},
         {'entity_id': 'BE-NIS-46021', 'name': 'Saint-Nicolas'},
+        {'entity_id': 'BE-NIS-63023', 'name': 'Eupen'},
     ])
+    caplog.set_level('WARNING')
     b = load_be_wb(SourceCache(offline=True, base_dir=tmp_path), gemeenten, {'73109', '46021'})
     pz = b.entities[b.entities.kind == 'be_politiezone']
     assert len(pz) == 1 and pz.iloc[0]['population_method'] == 'sum of members'
     m = b.memberships[b.memberships.entity_id == pz.iloc[0]['entity_id']]
     # dubbelzinnige Franse naam: de niet-Vlaamse gemeente wint
     assert set(m.member_entity_id) == {'BE-NIS-62063', 'BE-NIS-62096', 'BE-NIS-62093'}
+    # dekking: Eupen (niet-Vlaams) zonder zone wordt gemeld, Vlaamse gemeenten niet
+    cov = [r.getMessage() for r in caplog.records if 'zonder politiezone' in r.getMessage()]
+    assert len(cov) == 1 and 'BE-NIS-63023 (Eupen)' in cov[0]
+    assert '73109' not in cov[0] and '46021' not in cov[0]
     # SPW-xlsx ontbreekt offline: rest gaat door, status meldt het
     assert any(s.name == 'be_wb' for s in b.status)
     assert (b.entities.kind == 'be_hulpverleningszone').sum() == 15
@@ -117,6 +149,7 @@ def test_wb_spw_intercommunales_only(tmp_path):
     ws.append(['Intercommunale ', 'Nom du prestataire'])
     ws.append(['IDEA', 'x'])
     ws.append(['ORES ASSETS ', 'y'])
+    ws.append(["IBH (Bois d'Havré)", 'w'])
     ws.append([None, None])
     s2 = wb.create_sheet('SLSP')
     s2.append(['SLSP', 'Nom'])
@@ -124,7 +157,10 @@ def test_wb_spw_intercommunales_only(tmp_path):
     wb.save(tmp_path / 'be_spw_cadastre.xlsx')
     b = load_be_wb(SourceCache(offline=True, base_dir=tmp_path), pd.DataFrame(columns=['entity_id', 'name']), set())
     spw = b.entities[b.entities.entity_id.str.startswith('BE-SPW-')]
-    assert set(spw.name) == {'IDEA', 'ORES ASSETS'}
+    assert set(spw.name) == {'IDEA', 'ORES ASSETS', "IBH (Bois d'Havré)"}
+    ibh = spw[spw.entity_id == 'BE-SPW-IBH-BOIS-D-HAVRE'].iloc[0]       # id op volledige naam
+    assert ibh['match_name'] == 'IBH'
+    assert spw[spw.name == 'IDEA'].iloc[0]['match_name'] == 'IDEA'
     assert set(spw.kind) == {'be_intercommunale'} and set(spw.population_method) == {'unknown'}
     assert 'BE-SPW-ORES-ASSETS' in set(spw.entity_id)
 
@@ -164,6 +200,16 @@ def test_statbel_population_sum_per_refnis(tmp_path):
     with zipfile.ZipFile(z, 'w') as f:
         f.writestr('TF_SOC_POP_STRUCT_2026.txt', '﻿' + txt)
     assert parse_statbel_population(z) == {'62063': 105, '11001': 7}
+
+
+def test_statbel_invalid_zip_removed_and_previous_year_used(tmp_path):
+    from tam.sources.be import _statbel_file
+    (tmp_path / 'be_statbel_pop_2026.zip').write_text('<html>niet gevonden</html>')
+    with zipfile.ZipFile(tmp_path / 'be_statbel_pop_2025.zip', 'w') as f:
+        f.writestr('TF_SOC_POP_STRUCT_2025.txt', 'CD_REFNIS|MS_POPULATION\n11001|5\n')
+    path, year = _statbel_file(SourceCache(offline=True, base_dir=tmp_path))
+    assert year == 2025 and path.name == 'be_statbel_pop_2025.zip'
+    assert not (tmp_path / 'be_statbel_pop_2026.zip').exists()
 
 
 def test_load_be_wikidata_offline(tmp_path):

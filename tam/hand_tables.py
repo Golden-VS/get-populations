@@ -53,23 +53,24 @@ NL_LANDEN_CARIBISCH = {
 
 # Vaste ids en weergavenamen voor de Amsterdamse stadsdelen uit
 # step2_enrich.NL_STADSDEEL_INWONERS, gesleuteld op bron_url (die tabel is per stadsdeel
-# ontdubbeld op bron_url). Bevolking en peildatum komen uit die tabel.
+# ontdubbeld op bron_url). Bevolking en peildatum komen uit die tabel. Aliassen alleen in de
+# vorm 'Stadsdeel X': kale namen als 'Centrum' of 'Noord' zijn te algemeen om te matchen.
 NL_STADSDEEL_IDS = {
-    'https://nl.wikipedia.org/wiki/Amsterdam-Centrum': {'id': 'NL-HAND-AMSTERDAM-CENTRUM', 'name': 'Amsterdam-Centrum',
+    'https://nl.wikipedia.org/wiki/Amsterdam-Centrum': {'id': 'NL-HAND-AMSTERDAM-CENTRUM', 'name': 'Amsterdam-Centrum', 'aliases': ['Stadsdeel Centrum'],
         'population': None, 'peildatum': '', 'bron_url': 'https://nl.wikipedia.org/wiki/Amsterdam-Centrum'},
-    'https://nl.wikipedia.org/wiki/Amsterdam-Noord': {'id': 'NL-HAND-AMSTERDAM-NOORD', 'name': 'Amsterdam-Noord',
+    'https://nl.wikipedia.org/wiki/Amsterdam-Noord': {'id': 'NL-HAND-AMSTERDAM-NOORD', 'name': 'Amsterdam-Noord', 'aliases': ['Stadsdeel Noord'],
         'population': None, 'peildatum': '', 'bron_url': 'https://nl.wikipedia.org/wiki/Amsterdam-Noord'},
-    'https://nl.wikipedia.org/wiki/Amsterdam-Oost': {'id': 'NL-HAND-AMSTERDAM-OOST', 'name': 'Amsterdam-Oost',
+    'https://nl.wikipedia.org/wiki/Amsterdam-Oost': {'id': 'NL-HAND-AMSTERDAM-OOST', 'name': 'Amsterdam-Oost', 'aliases': ['Stadsdeel Oost'],
         'population': None, 'peildatum': '', 'bron_url': 'https://nl.wikipedia.org/wiki/Amsterdam-Oost'},
-    'https://nl.wikipedia.org/wiki/Amsterdam-Zuid': {'id': 'NL-HAND-AMSTERDAM-ZUID', 'name': 'Amsterdam-Zuid',
+    'https://nl.wikipedia.org/wiki/Amsterdam-Zuid': {'id': 'NL-HAND-AMSTERDAM-ZUID', 'name': 'Amsterdam-Zuid', 'aliases': ['Stadsdeel Zuid'],
         'population': None, 'peildatum': '', 'bron_url': 'https://nl.wikipedia.org/wiki/Amsterdam-Zuid'},
     'https://nl.wikipedia.org/wiki/Amsterdam-Zuidoost': {'id': 'NL-HAND-AMSTERDAM-ZUIDOOST',
-        'name': 'Amsterdam-Zuidoost', 'population': None, 'peildatum': '',
+        'name': 'Amsterdam-Zuidoost', 'aliases': ['Stadsdeel Zuidoost'], 'population': None, 'peildatum': '',
         'bron_url': 'https://nl.wikipedia.org/wiki/Amsterdam-Zuidoost'},
-    'https://nl.wikipedia.org/wiki/Amsterdam-West': {'id': 'NL-HAND-AMSTERDAM-WEST', 'name': 'Amsterdam-West',
+    'https://nl.wikipedia.org/wiki/Amsterdam-West': {'id': 'NL-HAND-AMSTERDAM-WEST', 'name': 'Amsterdam-West', 'aliases': ['Stadsdeel West'],
         'population': None, 'peildatum': '', 'bron_url': 'https://nl.wikipedia.org/wiki/Amsterdam-West'},
     'https://nl.wikipedia.org/wiki/Amsterdam-Nieuw-West': {'id': 'NL-HAND-AMSTERDAM-NIEUW-WEST',
-        'name': 'Amsterdam-Nieuw-West', 'population': None, 'peildatum': '',
+        'name': 'Amsterdam-Nieuw-West', 'aliases': ['Stadsdeel Nieuw-West'], 'population': None, 'peildatum': '',
         'bron_url': 'https://nl.wikipedia.org/wiki/Amsterdam-Nieuw-West'},
     # Weesp is sinds 2022 een stadsgebied van Amsterdam; geen alias 'Weesp' (dat is de
     # opgeheven gemeente, die als voorganger naar Amsterdam verwijst).

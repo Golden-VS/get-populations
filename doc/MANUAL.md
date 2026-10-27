@@ -458,7 +458,7 @@ filled in. The business fills in:
 
 | Column | Rule |
 |---|---|
-| `segments` | One or more detailed segments for this product and country, separated by `;` (for example `Municipality;Province`). Allowed values are on sheet `lists`; Excel offers them as a dropdown. **Rows with empty `segments` are skipped.** |
+| `segments` | One or more detailed segments for this product and country, separated by `;` (for example `Municipality;Province`). Allowed values are listed on sheet `lists`. **Rows with empty `segments` are skipped.** |
 | `excluded_kinds` | Optional. Detailed segments to leave out again, separated by `;`. Useful when a product fits a whole group except a few kinds. |
 | `min_population` | Optional whole number. Entities below it are marked `no - below cutoff`. Empty means no cut-off. |
 | `notes` | Free text, copied to the output. |
@@ -478,7 +478,7 @@ venv/bin/python tam_build.py --dry-run
 
 The dry run downloads the registers (cached in `reference/`), builds the master
 list, does the free rule-based matching and prints the **estimated AI cost**
-against the cap. It makes no AI call and writes no output file. Check the
+against the cap. It makes no AI call and writes no output file. It needs no API key. Check the
 estimate, then run for real. In the yearly run, force fresh register
 downloads:
 
@@ -490,6 +490,7 @@ Useful options:
 
 | Option | What it does |
 |---|---|
+| `--config <file>` | Other config file (default `tam_config.json`) |
 | `--template <file>` | Other template file (default `tam_template.xlsx`) |
 | `--crm <file>` | Other CRM file (default `step1b_segmented.xlsx`) |
 | `--output <file>` | Other output name (default `tam_<date>.xlsx`) |

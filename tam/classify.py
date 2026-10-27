@@ -109,16 +109,23 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
     """Vult detailed_segment voor rijen waarvan KIND_TO_SEGMENT geen vaste waarde heeft."""
     member_counts = member_counts or {}
     out = entities.copy()
-    stats = {'rule': 0, 'cached': 0, 'ai': 0, 'unclassified': 0, 'pending': 0}
+    stats = {'rule': 0, 'cached': 0, 'ai': 0, 'unclassified': 0, 'pending': 0,
+             'unclassified_ids': []}
     todo_kinds = {k for k, (_, d) in KIND_TO_SEGMENT.items() if d is None}
     todo = out.index[out['kind'].isin(todo_kinds)
                      & (out['detailed_segment'].fillna('') == '')]
 
     cache_rows = {}
     if Path(cache_path).exists():
-        df = pd.read_csv(cache_path, dtype=str, keep_default_na=False)
-        cache_rows = {r.entity_id: (r.name, r.detailed_segment, r.bron, r.datum)
-                      for r in df.itertuples()}
+        try:
+            df = pd.read_csv(cache_path, dtype=str, keep_default_na=False)
+            if list(df.columns) != CACHE_COLUMNS:
+                raise ValueError(f'onverwachte kolommen {list(df.columns)}')
+            cache_rows = {r.entity_id: (r.name, r.detailed_segment, r.bron, r.datum)
+                          for r in df.itertuples()}
+        except Exception as e:
+            log.warning('Classificatiecache onleesbaar of oud schema, negeer cache: %s', e)
+            cache_rows = {}
     valid = {d for d in DETAILED_SEGMENTS['Inter-municipal cooperation']}
 
     remaining = []
@@ -144,6 +151,7 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
         for idx in indices:
             out.at[idx, 'detailed_segment'] = OTHER
             stats['unclassified'] += 1
+            stats['unclassified_ids'].append(out.at[idx, 'entity_id'])
             log.warning('Niet geclassificeerd (%s): %s [%s]', reason,
                         out.at[idx, 'name'], out.at[idx, 'entity_id'])
 

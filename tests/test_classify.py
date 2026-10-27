@@ -107,7 +107,8 @@ def test_rules_only_leaves_pending(tmp_path, patch):
     assert fake.calls == []
     assert out.loc[0, 'detailed_segment'] == ''
     assert out.loc[1, 'detailed_segment'] == 'Environmental agency'
-    assert stats == {'rule': 1, 'cached': 0, 'ai': 0, 'unclassified': 0, 'pending': 1}
+    assert stats == {'rule': 1, 'cached': 0, 'ai': 0, 'unclassified': 0, 'pending': 1,
+                     'unclassified_ids': []}
 
 
 def test_answer_missing_item_left_unclassified(tmp_path, patch):
@@ -150,3 +151,38 @@ def test_estimate_classification_cost():
     assert cl.estimate_classification_cost(0) == 0
     assert cl.estimate_classification_cost(26) == pytest.approx(
         2 * (2500 * 4.0 + 1500 * 20.0) / 1e6)
+
+
+def test_unclassified_ids_listed(tmp_path, patch):
+    fake = patch(Fake(skip={2}))
+    df = _ents(('A', 'nl_samenwerking'), ('B', 'nl_samenwerking'))
+    _, stats = run(df, tmp_path, fake)
+    assert stats['unclassified_ids'] == ['X-1']
+
+
+def test_prompt_lists_every_value():
+    from tam.config import DETAILED_SEGMENTS
+    for v in DETAILED_SEGMENTS['Inter-municipal cooperation']:
+        assert v in cl.SYSTEM_PROMPT
+
+
+def test_ggd_rule_needs_whole_word():
+    assert cl._rule('Aggdorf Werkverband') is None
+    assert cl._rule('GGD Regio') == 'Public health service (GGD)'
+
+
+def test_bad_cache_degrades_to_empty(tmp_path, patch, caplog):
+    (tmp_path / 'c.csv').write_text('id,naam\n1,x\n')
+    fake = patch(Fake())
+    out, stats = run(_ents(('A', 'nl_samenwerking')), tmp_path, fake)
+    assert len(fake.calls) == 1 and stats['ai'] == 1
+    assert 'cache' in caplog.text.lower()
+
+
+def test_cost_cap_cache_keeps_only_batch_one(tmp_path, patch):
+    fake = patch(Fake(exc=[None, CostCapReached('x')]))
+    df = _ents(('A', 'nl_samenwerking'), ('B', 'nl_samenwerking'))
+    run(df, tmp_path, fake, batch_size=1)
+    cache = pd.read_csv(tmp_path / 'c.csv', dtype=str)
+    assert list(cache['entity_id']) == ['X-0']
+    assert list(cache['detailed_segment']) == ['Waste management']

@@ -1,6 +1,8 @@
 # TAM / whitespace list: design
 
-Status: draft for review, 2026-10-26.
+Status: approved by the user 2026-10-27; revised the same day after an
+independent review (see section 14, which wins where it differs from earlier
+sections).
 
 ## 1. Intent
 
@@ -67,7 +69,8 @@ Consequences:
 | Shared service organisation + its members | separate | the cooperation has its own staff |
 | Dissolved / merged municipality | 0 | only appears as a CRM alias of its successor |
 | BE OCMW / CPAS | 0 | the municipality buys; OCMW accounts count toward their gemeente |
-| DE Gemeinde inside an Amt / Verbandsgemeinde / Samtgemeinde / Verwaltungsgemeinschaft | 0 | administered by the Gemeindeverband; its accounts count toward that Verband |
+| DE Gemeinde inside an Amt / Verbandsgemeinde / Samtgemeinde / Verwaltungsgemeinschaft (BY, TH) / Verwaltungsverband (SN) | 0 | administered by the Gemeindeverband; its accounts count toward that Verband |
+| DE Gemeinde in a BW Gemeindeverwaltungsverband or vereinbarte VG | 1 | keeps its own Rathaus and staff (the GVV is a separate entity too) |
 
 "Counts toward" means: the CRM account is matched to the buying entity, with a
 match reason saying why (predecessor, OCMW of, member of Verband). That keeps
@@ -349,8 +352,7 @@ it appends rows for new core products and leaves filled rows untouched.
 Kept narrow so it stays well under Excel's row limit: `company, sales_unit,
 core_product, country, entity_id, name, detailed_segment, population, in_tam,
 in_tam_reason, matched_accounts (count)`. Other entity attributes live in
-`Entities` (join on `entity_id`). If the TAM sheet would exceed 1,000,000 rows
-the app also writes it as `tam_<date>_TAM.csv` and says so in the run log.
+`Entities` (join on `entity_id`).
 
 `in_tam` values:
 - `yes`
@@ -366,7 +368,10 @@ independent; Power BI joins ARR -> accountid -> entity_id -> TAM.
 if it prefers a separate dimension.
 
 **`Memberships`**: long format, one row per (cooperation `entity_id`, member
-`entity_id`), with `member_kind` and `join_date` where the register has it.
+`entity_id`), with `member_kind`, the cooperation's `detailed_segment` and
+`join_date` where the register has it. Only cooperation memberships; territorial
+relations (province/Kreis/Land -> municipality) are never exported, otherwise
+one paying province would mark all its municipalities as covered.
 Decided by the user: when a cooperation holds the licence, its member
 organisations count as covered (black space). Power BI uses this sheet to
 mark members of a paying cooperation as covered. Direct memberships only; the
@@ -462,3 +467,46 @@ python tam_build.py --template tam_template.xlsx [--crm step1b_segmented.xlsx]
 - Prompt wording for classification and matching.
 - Whether `Entities` and `TAM` share code paths with step 2's reference
   loaders now or later, as long as the loaders are reusable.
+
+## 14. Revisions after independent review (2026-10-27)
+
+- **DE population sums** are computed from ALL Gemeinden by official key
+  prefix, including Gemeinden that are aliases of an Amt/Verband. Kreise,
+  Laender, Regierungsbezirke, Verbaende and Hoehere Kommunalverbaende are all
+  summed that way; a Gemeinde inside an Amt still counts toward its Kreis.
+- **Verband rules per Land** (section 3.1 table updated): BW members keep
+  their own administration and stay entities. An erfuellende Gemeinde (TH,
+  SN) is the entity and represents the whole Verband's population (my call).
+- **Destatis GV parsing** uses Satzart (10/20/40/50/60) plus Textkennzeichen
+  for the sub-kind; the quarterly file URL has no year, so the app downloads
+  all four quarters and takes the newest Stichtag.
+- **Stable ids**: DE Gemeinden and kreisfreie Staedte use the 8-digit AGS
+  (`DE-AGS-<8>`), Kreise `DE-AGS-<5>`, Laender `DE-AGS-<2>`; hand-table rows
+  carry a fixed id in the table. An override pointing at an unknown id is an
+  ERROR in the run log, not a silent skip.
+- **Bremen**: Land/Stadt Bremen population excludes Bremerhaven.
+  Berlin, Hamburg and Bremen stay State only (my call); their municipal
+  services sit in the Bezirke (Berlin, Hamburg) which are Local government.
+- **Matching**:
+  - pass 1 only matches within entity kinds compatible with the CRM
+    `detected_type` (so "Veiligheidsregio Zeeland" never lands on the province
+    Zeeland), and resolves DE same-name Gemeinden by postcode;
+  - the commercial exclusion uses step 1's real literal `commercieel_of_overig`;
+  - pass 2 candidates always include every exact-name and alias hit, are
+    ranked with postcode for DE, and governmental accounts are processed first
+    so a cost cap never starves them;
+  - KvK numbers (from the OO register) and KBO numbers (from the OP dump) are
+    attached to municipalities too, so CRM company numbers match directly;
+  - low-confidence AI matches stay in `CRM matches` with `confidence = low`
+    (my call); the manual tells the team to review them and use overrides.
+- **CRM accounts abroad** (`OTHER`) that step 1b marked Governmental are
+  listed in `CRM unmatched` with reason "land buiten scope".
+- **Which cooperation kinds make members covered** is left to Power BI: the
+  Memberships sheet carries the cooperation's detailed segment, so the report
+  can count members as covered for e.g. shared service / IT cooperations only.
+- **AI**: per-batch error handling (one failing batch does not stop the run);
+  the cost estimate covers classification and matching and is printed before
+  any AI call; `--dry-run` makes no AI call at all.
+- **CRM input for the first run**: `input_crm_27-10-2026.csv` (delivered by
+  the user 2026-10-27), processed through steps 1 and 1b.
+- Dropped as unnecessary: CSV fallback for oversized TAM sheets.

@@ -1,6 +1,7 @@
 """Classificatie van samenwerkingsverbanden naar detailed segment (regels, cache, Claude)."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from datetime import date
@@ -18,14 +19,18 @@ from tam.entities import slugify
 log = logging.getLogger(__name__)
 
 OTHER = 'Other joint arrangement'
-CACHE_COLUMNS = ['entity_id', 'name', 'detailed_segment', 'bron', 'datum']
-# Grove schatting per batch van 25 items (invoer incl. systeemprompt, uitvoer)
-EST_IN_TOKENS_PER_BATCH = 2500
+CACHE_COLUMNS = ['entity_id', 'name', 'detailed_segment', 'bron', 'datum', 'input_hash']
+# Cachekolommen van voor F5 (zonder input_hash): ingelezen, maar de rijen zijn nooit geldig
+_OLD_CACHE_COLUMNS = ['entity_id', 'name', 'detailed_segment', 'bron', 'datum']
+# Grove schatting per batch van 25 items (invoer incl. systeemprompt en doelteksten van tot
+# ~450 tekens per item, uitvoer)
+EST_IN_TOKENS_PER_BATCH = 6000
 EST_OUT_TOKENS_PER_BATCH = 1500
 
 SYSTEM_PROMPT = """Je bent een analist overheidsdata. Je classificeert samenwerkingsverbanden
 tussen gemeenten (Nederland, Belgie, Duitsland) in een vast schema op basis van naam, land,
-soort en aantal leden. Namen kunnen Nederlands, Frans, Duits of Engels zijn.
+soort, aantal leden en, waar bekend, het doel uit het officiele register ("doel: ...", soms met
+een "OWMS-naam" als extra naamhint). Namen kunnen Nederlands, Frans, Duits of Engels zijn.
 
 Kies voor elk genummerd item exact een "detailed_segment" uit deze lijst:
    - Municipal federation: Gemeindeverband, federatie van gemeenten
@@ -45,7 +50,9 @@ Kies voor elk genummerd item exact een "detailed_segment" uit deze lijst:
    - Other joint arrangement: past in geen van de andere categorieen
 
 REGELS:
-- Gebruik alleen de naam, het land, de soort en het aantal leden; verzin geen feiten.
+- Gebruik alleen de naam, het land, de soort, het aantal leden en het doel; verzin geen feiten.
+- Het doel weegt zwaarder dan een algemene naam (bv. "Werkorganisatie X" met als doel
+  sociale werkvoorziening is Social employment & work).
 - Twijfel je tussen een specifieke categorie en "Other joint arrangement", kies dan "Other joint arrangement".
 - Geef voor elk nummer in de invoer precies een antwoord terug, met hetzelfde volgnummer.
 """
@@ -68,7 +75,9 @@ def estimate_classification_cost(n_pending: int, batch_size: int = 25) -> float:
                          EST_OUT_TOKENS_PER_BATCH)
 
 
-def build_user_message(rows: list[dict], member_counts: dict) -> str:
+def build_user_message(rows: list[dict], member_counts: dict,
+                       descriptions: dict | None = None) -> str:
+    descriptions = descriptions or {}
     lines = []
     for i, r in enumerate(rows, start=1):
         parts = [f"volgnummer {i}", f"naam: {r['name']}"]
@@ -78,8 +87,21 @@ def build_user_message(rows: list[dict], member_counts: dict) -> str:
         n = member_counts.get(r['entity_id'])
         if n:
             parts.append(f'leden: {n}')
+        text = _description(descriptions, r['entity_id'])
+        if text:
+            parts.append(f'doel: {text}')
         lines.append(' | '.join(parts))
     return 'Classificeer deze samenwerkingen:\n\n' + '\n'.join(lines)
+
+
+def _description(descriptions: dict, entity_id) -> str:
+    value = descriptions.get(entity_id)
+    return '' if value is None or (isinstance(value, float) and pd.isna(value)) else str(value).strip()
+
+
+def input_hash(name, description: str = '') -> str:
+    """sha1 van naam + beschrijving: een cacherij is alleen geldig bij dezelfde invoer (F5)."""
+    return hashlib.sha1(f'{name}\x1f{description}'.encode('utf-8')).hexdigest()
 
 
 def _rule(name: str) -> str | None:
@@ -96,7 +118,8 @@ def _rule(name: str) -> str | None:
 
 def _save_cache(path: Path, rows: dict) -> None:
     atomic_write_csv(pd.DataFrame(
-        [{'entity_id': k, 'name': v[0], 'detailed_segment': v[1], 'bron': v[2], 'datum': v[3]}
+        [{'entity_id': k, 'name': v[0], 'detailed_segment': v[1], 'bron': v[2], 'datum': v[3],
+          'input_hash': v[4]}
          for k, v in rows.items()], columns=CACHE_COLUMNS,
     ), path)
 
@@ -104,9 +127,15 @@ def _save_cache(path: Path, rows: dict) -> None:
 def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bool,
                           cache_path: Path = REFERENCE_DIR / 'classify_cache.csv',
                           batch_size: int = 25, rules_only: bool = False,
-                          member_counts: dict | None = None) -> tuple[pd.DataFrame, dict]:
-    """Vult detailed_segment voor rijen waarvan KIND_TO_SEGMENT geen vaste waarde heeft."""
+                          member_counts: dict | None = None,
+                          descriptions: dict | None = None) -> tuple[pd.DataFrame, dict]:
+    """Vult detailed_segment voor rijen waarvan KIND_TO_SEGMENT geen vaste waarde heeft.
+
+    `descriptions` (entity_id -> doel uit het register) gaat mee in de prompt; een cacherij
+    geldt alleen als sha1(naam + beschrijving) gelijk is (oude rijen zonder hash: opnieuw).
+    """
     member_counts = member_counts or {}
+    descriptions = descriptions or {}
     out = entities.copy()
     # unclassified = cap + no_ai + failed (reden van 'Other joint arrangement')
     stats = {'rule': 0, 'cached': 0, 'ai': 0, 'unclassified': 0, 'cap': 0, 'no_ai': 0,
@@ -119,9 +148,13 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
     if Path(cache_path).exists():
         try:
             df = pd.read_csv(cache_path, dtype=str, keep_default_na=False)
+            if list(df.columns) == _OLD_CACHE_COLUMNS:
+                log.info('Classificatiecache zonder input_hash (oud schema): rijen worden opnieuw '
+                         'geclassificeerd')
+                df['input_hash'] = ''
             if list(df.columns) != CACHE_COLUMNS:
                 raise ValueError(f'onverwachte kolommen {list(df.columns)}')
-            cache_rows = {r.entity_id: (r.name, r.detailed_segment, r.bron, r.datum)
+            cache_rows = {r.entity_id: (r.name, r.detailed_segment, r.bron, r.datum, r.input_hash)
                           for r in df.itertuples()}
         except Exception as e:
             log.warning('Classificatiecache onleesbaar of oud schema, negeer cache: %s', e)
@@ -137,7 +170,8 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
             stats['rule'] += 1
             continue
         hit = cache_rows.get(row['entity_id'])
-        if hit and hit[0] == row['name'] and hit[1] in valid:
+        expected = input_hash(row['name'], _description(descriptions, row['entity_id']))
+        if hit and hit[0] == row['name'] and hit[4] == expected and hit[1] in valid:
             out.at[idx, 'detailed_segment'] = hit[1]
             stats['cached'] += 1
             continue
@@ -166,7 +200,7 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
         rows = [out.loc[i].to_dict() for i in batch]
         try:
             parsed = call_parsed(client, tracker, system=SYSTEM_PROMPT,
-                                 user=build_user_message(rows, member_counts),
+                                 user=build_user_message(rows, member_counts, descriptions),
                                  output_model=ClassBatch, estimated_cost=est)
         except CostCapReached as e:
             log.warning('Kostenplafond bereikt tijdens classificatie: %s', e)
@@ -185,8 +219,10 @@ def classify_cooperations(entities: pd.DataFrame, client, tracker, *, use_ai: bo
                 continue
             out.at[idx, 'detailed_segment'] = seg
             stats['ai'] += 1
-            cache_rows[out.at[idx, 'entity_id']] = (
-                out.at[idx, 'name'], seg, f'Claude {MODEL}', date.today().isoformat())
+            eid = out.at[idx, 'entity_id']
+            cache_rows[eid] = (
+                out.at[idx, 'name'], seg, f'Claude {MODEL}', date.today().isoformat(),
+                input_hash(out.at[idx, 'name'], _description(descriptions, eid)))
         mark_other(missing, 'ontbreekt in antwoord', 'failed')
         _save_cache(cache_path, cache_rows)
     return out, stats

@@ -355,3 +355,21 @@ def test_override_for_unknown_account_in_run_log_and_not_counted(tmp_path, env):
     assert any('acc-99' in v and 'niet in de CRM' in v for v in log['waarde'])
     matches = pd.read_excel(tmp_path / 'out.xlsx', sheet_name='CRM matches')
     assert 'acc-99' not in set(matches['accountid'])
+
+
+def test_coop_descriptions_passed_to_classification(tmp_path, env, monkeypatch):
+    # F5: tam_build geeft extras['coop_descriptions'] van de master door aan de classificatie
+    master = _fake_master()
+    master.extras['coop_descriptions'] = {'NL-OO-1': 'Sociale werkvoorziening.'}
+    monkeypatch.setattr(tam_build, 'build_master', lambda cache: master)
+    seen = []
+    real = tam_build.classify_cooperations
+
+    def spy(entities, client, tracker, **kw):
+        seen.append(kw.get('descriptions'))
+        return real(entities, client, tracker, **kw)
+
+    monkeypatch.setattr(tam_build, 'classify_cooperations', spy)
+    tpl = _template(tmp_path)
+    assert tam_build.main(_run_args(tmp_path, tpl, '--no-ai')) == 0
+    assert seen and all(d == {'NL-OO-1': 'Sociale werkvoorziening.'} for d in seen)

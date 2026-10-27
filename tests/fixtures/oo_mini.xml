@@ -65,7 +65,9 @@
   <p:gemeenschappelijkeRegelingen>
     <p:regeling p:systeemId="8001">
       <p:titel>GR Alfa 1</p:titel>
-      <p:regionaalSamenwerkingsorgaan p:systeemId="9001" p:resourceIdentifierOWMS="http://standaarden.overheid.nl/owms/terms/sw_a">Samenwerking Alfa</p:regionaalSamenwerkingsorgaan>
+      <p:regionaalSamenwerkingsorgaan p:systeemId="9001" p:resourceIdentifierOWMS="http://standaarden.overheid.nl/owms/terms/Sociale_Dienst_Alfa">Samenwerking Alfa</p:regionaalSamenwerkingsorgaan>
+      <p:doel><![CDATA[Uitvoering van de
+  Participatiewet voor de deelnemers.]]></p:doel>
       <p:deelnemendeOrganisaties>
         <p:deelnemendeOrganisatie p:systeemId="1" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0001"><p:naam>Gemeente Een</p:naam><p:toetredingsDatum>2010-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
         <p:deelnemendeOrganisatie p:systeemId="2" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0002"><p:naam>Gemeente Twee</p:naam><p:toetredingsDatum>2012-05-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
@@ -75,6 +77,7 @@
     <p:regeling p:systeemId="8002">
       <p:titel>GR Alfa 2</p:titel>
       <p:regionaalSamenwerkingsorgaan p:systeemId="9001">Samenwerking Alfa</p:regionaalSamenwerkingsorgaan>
+      <p:doel>Gezamenlijke ICT-dienstverlening.</p:doel>
       <p:datumUitwerkingtreding>2999-01-01</p:datumUitwerkingtreding>
       <p:deelnemendeOrganisaties>
         <p:deelnemendeOrganisatie p:systeemId="2" p:resourceIdentifierTOOI="htt//identifier.overheid.nl/tooi/id/gemeente/gm0002"><p:naam>Gemeente Twee</p:naam><p:toetredingsDatum>2015-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
@@ -105,7 +108,7 @@
     </p:regeling>
     <p:regeling p:systeemId="8006">
       <p:titel>GR Zonder Code</p:titel>
-      <p:regionaalSamenwerkingsorgaan p:systeemId="9002">Samenwerking Zonder Code</p:regionaalSamenwerkingsorgaan>
+      <p:regionaalSamenwerkingsorgaan p:systeemId="9002" p:resourceIdentifierOWMS="http://standaarden.overheid.nl/owms/terms/Samenwerking_Zonder_Code">Samenwerking Zonder Code</p:regionaalSamenwerkingsorgaan>
       <p:deelnemendeOrganisaties>
         <p:deelnemendeOrganisatie p:systeemId="2" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0002"><p:naam>Gemeente Twee</p:naam><p:toetredingsDatum>2012-05-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
       </p:deelnemendeOrganisaties>

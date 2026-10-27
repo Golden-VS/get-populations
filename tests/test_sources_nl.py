@@ -243,3 +243,24 @@ def test_id_patches_deduplicated_by_entity_id(tmp_path):
     p = parse_oo_export(_mini_xml(tmp_path, gm(1, '111') + gm(2, '222')), RUN).extras['id_patches']
     assert list(p['entity_id']) == ['NL-GM-GM0005']
     assert p.iloc[0]['official_ids'] == 'kvk:111;tooi:gm0005;kvk:222'
+
+
+def test_coop_descriptions_from_doel_and_owms_slug():
+    # F5: doel van alle actieve GR'en van een orgaan (unie) plus de OWMS-naam als hint
+    desc = _oo().extras['coop_descriptions']
+    assert desc['NL-SO-SO0001'] == ('Uitvoering van de Participatiewet voor de deelnemers. | '
+                                    'Gezamenlijke ICT-dienstverlening. '
+                                    '(OWMS-naam: Sociale Dienst Alfa)')
+    # OWMS-naam gelijk aan de eigen naam en geen doel: geen beschrijving
+    assert 'NL-OO-9002' not in desc
+    # beeindigde GR'en en organen zonder GR tellen niet mee
+    assert set(desc) <= set(_oo().entities['entity_id'])
+
+
+def test_coop_description_truncated(tmp_path):
+    body = OO_FIXTURE.read_text(encoding='utf-8').replace(
+        'Gezamenlijke ICT-dienstverlening.', 'woord ' * 200)
+    path = tmp_path / 'oo.xml'
+    path.write_text(body, encoding='utf-8')
+    text = parse_oo_export(path, RUN).extras['coop_descriptions']['NL-SO-SO0001']
+    assert len(text) <= 450 and '...' in text and text.endswith('(OWMS-naam: Sociale Dienst Alfa)')

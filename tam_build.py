@@ -249,9 +249,12 @@ def run_build(args) -> int:
 
     # 3. classificatie: alleen regels + cache (voor de schatting)
     member_counts = _member_counts(memberships)
+    # doel/OWMS-naam per samenwerking uit het OO-register (F5)
+    descriptions = bundle.extras.get('coop_descriptions') or {}
     tracker = CostTracker(args.max_cost)
     _, pre = classify_cooperations(entities, None, tracker, use_ai=False, rules_only=True,
-                                   cache_path=CLASSIFY_CACHE, member_counts=member_counts)
+                                   cache_path=CLASSIFY_CACHE, member_counts=member_counts,
+                                   descriptions=descriptions)
     print(f"Classificatie: {pre['rule']} via regel, {pre['cached']} uit cache, "
           f"{pre['pending']} nog voor AI")
 
@@ -290,7 +293,8 @@ def run_build(args) -> int:
     client = anthropic.Anthropic() if use_ai else None
     entities, cstats = classify_cooperations(entities, client, tracker, use_ai=use_ai,
                                              cache_path=CLASSIFY_CACHE,
-                                             member_counts=member_counts)
+                                             member_counts=member_counts,
+                                             descriptions=descriptions)
     matched2, unmatched2, pstats = pass2(rest, entities, aliases, client, tracker, use_ai=use_ai,
                                          cache_path=MATCH_CACHE, index=index,
                                          by_country=by_country)

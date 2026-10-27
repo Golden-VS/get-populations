@@ -30,6 +30,11 @@ namespace https://organisaties.overheid.nl/static/schema/oo/export/2.6.13. Geins
                                       toetredingsDatum). Deelnemers zonder TOOI zijn oude
                                       (opgeheven) gemeenten en worden overgeslagen.
   gemeenschappelijkeRegelingenGrensoverschrijdend/regeling   15 stuks, genegeerd.
+Per regeling staat het doel in regeling/doel (direct kind, meestal CDATA; 1094 van 1196) en
+draagt regionaalSamenwerkingsorgaan de OWMS-URI van het orgaan (@resourceIdentifierOWMS, laatste
+padstuk soms leesbaar, bv. 'Sociale_Dienst_Oost-Achterhoek', soms een afkorting). Beide gaan per
+orgaan als beschrijving naar extras['coop_descriptions'] (unie over de actieve GR'en, ingekort)
+voor de classificatie.
 Het regionaalSamenwerkingsorgaan-record (type 'Regionaal samenwerkingsorgaan', 357 actief)
 draagt KvK, OIN en TOOI so####. Sommige OWMS/TOOI-URI's zijn kapot ('htt//...'); de TOOI-code
 wordt daarom met een regex uit de tekst gehaald, niet uit het schema.
@@ -223,6 +228,8 @@ _NATIONAL_EXCLUDE = ('Adviescollege', 'Rechtspraak', 'Hoog College van Staat',
                      'Provincie', 'Regionaal samenwerkingsorgaan')
 _VGGM = {'vggm', 'veiligheids en gezondheidsregio gelderland midden'}
 _OO_COLUMNS = ['entity_id', 'official_ids']
+# Maximale lengte van de doeltekst per orgaan (unie over GR'en) in coop_descriptions
+DESCRIPTION_MAX_CHARS = 400
 
 
 def _tooi(text):
@@ -273,12 +280,28 @@ def _read_gr(el) -> dict:
         soort, code = _tooi(d.get(OO_NS + 'resourceIdentifierTOOI'))
         if soort in ('gemeente', 'provincie', 'waterschap'):
             members.append((soort, code, (d.findtext(OO_NS + 'toetredingsDatum') or '').strip()))
+    owms = (body.get(OO_NS + 'resourceIdentifierOWMS') or '') if body is not None else ''
     return {
         'end': el.findtext(OO_NS + 'datumUitwerkingtreding'),
         'body_id': body.get(OO_NS + 'systeemId') if body is not None else None,
         'body_name': ((body.text or '').strip() if body is not None else ''),
         'members': members,
+        'doel': _clean(el.findtext(OO_NS + 'doel')),
+        'owms': owms.rstrip('/').rsplit('/', 1)[-1] if owms else '',
     }
+
+
+def _description(name: str, doelen: list[str], owms: list[str]) -> str:
+    """Doelteksten (uniek, ' | '), ingekort tot DESCRIPTION_MAX_CHARS, plus de OWMS-naam als
+    hint als die iets anders zegt dan de eigen naam. Leeg als er niets is."""
+    text = ' | '.join(dict.fromkeys(d for d in doelen if d))
+    if len(text) > DESCRIPTION_MAX_CHARS:
+        text = text[:DESCRIPTION_MAX_CHARS].rsplit(' ', 1)[0].rstrip(' |,;.') + '...'
+    hints = [h for h in dict.fromkeys(_clean(o.replace('_', ' ')) for o in owms if o)
+             if h and normalize(h) != normalize(name)]
+    if hints:
+        text = (text + ' ' if text else '') + f"(OWMS-naam: {', '.join(hints)})"
+    return text
 
 
 def _waterschap_population(name: str):
@@ -373,7 +396,9 @@ def parse_oo_export(xml_path: Path, run_date: date) -> SourceBundle:
             log.warning('OO: orgaan %s (%s) ontbreekt in de export', gr['body_id'], gr['body_name'])
         eid = (make_entity_id('NL', 'SO', org['tooi'][1]) if org['tooi'][0] == 'so'
                else make_entity_id('NL', 'OO', org['id']))
-        body = bodies.setdefault(eid, {'org': org, 'members': {}})
+        body = bodies.setdefault(eid, {'org': org, 'members': {}, 'doelen': [], 'owms': []})
+        body['doelen'].append(gr['doel'])
+        body['owms'].append(gr['owms'])
         for soort, mcode, joined in gr['members']:
             prefix, kind = {'gemeente': ('GM', 'nl_gemeente'), 'provincie': ('PV', 'nl_provincie'),
                             'waterschap': ('WS', 'nl_waterschap')}[soort]
@@ -383,9 +408,13 @@ def parse_oo_export(xml_path: Path, run_date: date) -> SourceBundle:
             old = body['members'].get(mid)
             if old is None or (joined and (not old[1] or joined < old[1])):
                 body['members'][mid] = (kind, joined)
+    descriptions = {}
     for eid, body in bodies.items():
         org = body['org']
         kind = 'nl_veiligheidsregio' if _is_veiligheidsregio(org['name']) else 'nl_samenwerking'
+        text = _description(org['name'], body['doelen'], body['owms'])
+        if text:
+            descriptions[eid] = text
         rows.append(new_entity(
             entity_id=eid, name=org['name'], country='NL', kind=kind,
             population_method='sum of members', official_ids=_official_ids(org),
@@ -404,11 +433,14 @@ def parse_oo_export(xml_path: Path, run_date: date) -> SourceBundle:
         parts.extend(x for x in pt['official_ids'].split(';') if x and x not in parts)
     patches = [{'entity_id': k, 'official_ids': ';'.join(v)} for k, v in merged.items()]
     bundle.extras['id_patches'] = pd.DataFrame(patches, columns=_OO_COLUMNS)
+    # entity_id -> doel/OWMS-naam van het orgaan, voor de classificatie (F5)
+    bundle.extras['coop_descriptions'] = descriptions
     counts = bundle.entities['kind'].value_counts().to_dict()
     msg = (f'{n_active} actieve GR\'en ({n_nobody} zonder orgaan), {len(bodies)} organen, '
            f'{counts.get("nl_veiligheidsregio", 0)} veiligheidsregio\'s, '
            f'{counts.get("nl_waterschap", 0)} waterschappen, {n_nat["nl_ministerie"]} ministeries, '
-           f'{n_nat["nl_rijksorganisatie"]} rijksorganisaties, {len(patches)} gemeente-id-patches')
+           f'{n_nat["nl_rijksorganisatie"]} rijksorganisaties, {len(patches)} gemeente-id-patches, '
+           f'{len(descriptions)} organen met doel/OWMS-naam')
     log.info('OO: %s', msg)
     bundle.status.append(SourceStatus('nl_oo', True, len(bundle.entities), source_date, msg))
     return bundle

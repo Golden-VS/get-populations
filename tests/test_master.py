@@ -316,3 +316,10 @@ def test_stale_cache_fallback_visible_in_source_status():
     assert 'verouderde cache, datum 2025-01-02' in _status(result, 'a').message
     assert 'verouderde cache' not in _status(result, 'b').message
     assert any('verouderde cache, datum 2025-01-02' in w for w in result.extras['warnings'])
+
+
+def test_coop_descriptions_extras_merged():
+    a = _bundle('a', [_gem('NL-GM-GM0001', 'Aa', 100)], extras={'coop_descriptions': {'X': 'doel x'}})
+    b = _bundle('b', [_gem('NL-GM-GM0002', 'Bee', 1)], extras={'coop_descriptions': {'Y': 'doel y'}})
+    result = build_master(None, loaders=[('a', _fixed(a)), ('b', _fixed(b))])
+    assert result.extras['coop_descriptions'] == {'X': 'doel x', 'Y': 'doel y'}

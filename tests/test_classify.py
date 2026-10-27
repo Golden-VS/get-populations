@@ -150,7 +150,7 @@ def test_cost_cap_stops_rest(tmp_path, patch):
 def test_estimate_classification_cost():
     assert cl.estimate_classification_cost(0) == 0
     assert cl.estimate_classification_cost(26) == pytest.approx(
-        2 * (2500 * 4.0 + 1500 * 20.0) / 1e6)
+        2 * (6000 * 4.0 + 1500 * 20.0) / 1e6)
 
 
 def test_unclassified_ids_listed(tmp_path, patch):
@@ -204,3 +204,39 @@ def test_cache_write_failure_keeps_previous_cache(tmp_path, patch, monkeypatch):
             tmp_path, None)
     assert (tmp_path / 'c.csv').read_text() == before
     assert not (tmp_path / 'c.csv.part').exists()
+
+
+def test_description_in_prompt_line(tmp_path, patch):
+    # F5: het doel uit het register gaat mee in de itemregel
+    fake = patch(Fake())
+    df = _ents(('Werkorganisatie Oost', 'nl_samenwerking'), ('Samen Zuid', 'nl_samenwerking'))
+    run(df, tmp_path, fake, descriptions={'X-0': 'Uitvoering Participatiewet.'})
+    user = fake.calls[0]['user']
+    line0 = next(line for line in user.splitlines() if line.startswith('volgnummer 1'))
+    line1 = next(line for line in user.splitlines() if line.startswith('volgnummer 2'))
+    assert 'doel: Uitvoering Participatiewet.' in line0
+    assert 'doel' not in line1
+    assert 'doel' in cl.SYSTEM_PROMPT
+
+
+def test_description_change_invalidates_cache(tmp_path, patch):
+    df = _ents(('Werkorganisatie Oost', 'nl_samenwerking'))
+    run(df, tmp_path, patch(Fake()), descriptions={'X-0': 'Afval inzamelen.'})
+    same = patch(Fake())
+    _, stats = run(df, tmp_path, same, descriptions={'X-0': 'Afval inzamelen.'})
+    assert same.calls == [] and stats['cached'] == 1
+    changed = patch(Fake(value='Social employment & work'))
+    out, stats = run(df, tmp_path, changed, descriptions={'X-0': 'Sociale werkvoorziening.'})
+    assert len(changed.calls) == 1 and out.loc[0, 'detailed_segment'] == 'Social employment & work'
+
+
+def test_old_cache_rows_without_hash_are_reclassified(tmp_path, patch):
+    # cache van voor F5 (zonder input_hash): rijen niet hergebruikt, wel ingelezen zonder fout
+    pd.DataFrame([{'entity_id': 'X-0', 'name': 'Werkorganisatie Oost',
+                   'detailed_segment': 'Other joint arrangement', 'bron': 'Claude', 'datum': '2026-10-27'}]
+                 ).to_csv(tmp_path / 'c.csv', index=False)
+    fake = patch(Fake())
+    out, stats = run(_ents(('Werkorganisatie Oost', 'nl_samenwerking')), tmp_path, fake)
+    assert len(fake.calls) == 1 and stats['ai'] == 1 and stats['cached'] == 0
+    cache = pd.read_csv(tmp_path / 'c.csv', dtype=str)
+    assert list(cache.columns) == cl.CACHE_COLUMNS and cache.loc[0, 'input_hash']

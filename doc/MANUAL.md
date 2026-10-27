@@ -1,7 +1,7 @@
 # Manual - Running the Account Enrichment Steps
 
 *Living document. We extend this manual as new steps are added.*
-*Last updated: 16 June 2026*
+*Last updated: 27 October 2026*
 
 ## What this pipeline does
 
@@ -108,6 +108,9 @@ final_enriched.xlsx            (+ population columns) <- THE final file
 Step 1 is free and instant. Step 1b uses the Claude API (costs money, uses
 the cache). Step 2 uses Wikidata (free; the first run downloads reference
 data, which takes 5-10 minutes, after that it is cached in `reference/`).
+
+The separate **TAM tool** (`tam_build.py`, section 7) starts from
+`step1b_segmented.xlsx` and builds the white space list; it does not feed step 2.
 
 Every run of every step also writes a timestamped log file to `logs/`
 (e.g. `logs/step1b_segment_2026-06-11_143052.log`), so a failed or
@@ -404,6 +407,208 @@ classifications. If you ever want to force a complete re-classification
 (for example after a major change to the segment list), run once with
 `--refresh-segments` and expect full-run costs again.
 
+## 7. TAM / whitespace list (`tam_build.py`)
+
+### What it does
+
+Step 2 answers "how many inhabitants does this CRM account serve?". The TAM
+tool answers the opposite question: **which governmental organisations exist
+at all** in NL, BE and DE, how large are they, and which of them are already
+customers? It builds a master list of all relevant bodies (municipalities,
+provinces, states, districts, water authorities, safety regions, police zones,
+inter-municipal cooperations and so on) from official registers, matches the
+CRM accounts to that list, and writes one Excel file that Power BI uses to
+compute white space (potential not yet served) and black space (already served).
+
+It runs about once a year. The master list comes from registers (not from the
+CRM), so it also contains organisations that are not customers.
+
+### Prerequisites
+
+1. **A fresh CRM export**, processed through step 1 and step 1b (sections 1
+   to 3), so `step1b_segmented.xlsx` covers all current accounts.
+2. **The API key** in a file called `.env` in the repo root (gitignored,
+   permissions 600) with one line `ANTHROPIC_API_KEY=...`. `tam_build.py`
+   reads this file itself. Step 1b does not, so before step 1b run
+   `set -a; . ./.env; set +a` once in your shell.
+3. **`tam_config.json`** (gitignored). Copy `tam_config.example.json` and fill
+   in your own values:
+   - `companies`: the allow-list of companies whose products are in scope;
+   - `ignore_core_products`: product families that never get a TAM row.
+4. **The product mapping workbook** (first tab) in `doc/`, or pass another
+   file with `--products`.
+
+### Step A: make the template
+
+```bash
+venv/bin/python tam_build.py --make-template
+```
+
+This writes `tam_template.xlsx` with sheet `tam_definitions`: one row per core
+product and country (NL, BE, DE). A core product that appears under several
+sales units is assigned to the sales unit with the most product lines; the
+strays are listed in the run log. The command refuses to overwrite an existing
+template. Next year, use `--make-template --update`: it only appends rows for
+new core products and leaves everything already filled in untouched.
+
+### Step B: the business fills `tam_definitions`
+
+The first four columns (`company`, `sales_unit`, `core_product`, `country`) are
+filled in. The business fills in:
+
+| Column | Rule |
+|---|---|
+| `segments` | One or more detailed segments for this product and country, separated by `;` (for example `Municipality;Province`). Allowed values are on sheet `lists`; Excel offers them as a dropdown. **Rows with empty `segments` are skipped.** |
+| `excluded_kinds` | Optional. Detailed segments to leave out again, separated by `;`. Useful when a product fits a whole group except a few kinds. |
+| `min_population` | Optional whole number. Entities below it are marked `no - below cutoff`. Empty means no cut-off. |
+| `notes` | Free text, copied to the output. |
+
+An unknown value stops the run with a message that names the row and the
+value, so typos are caught before anything costs money. The segment values are
+a fixed list (also the join key for the factor table in Power BI), so do not
+rename them between years.
+
+Sheet `match_overrides` is described under "Reviewing the matches" below.
+
+### Step C: dry run, then the real run
+
+```bash
+venv/bin/python tam_build.py --dry-run
+```
+
+The dry run downloads the registers (cached in `reference/`), builds the master
+list, does the free rule-based matching and prints the **estimated AI cost**
+against the cap. It makes no AI call and writes no output file. Check the
+estimate, then run for real. In the yearly run, force fresh register
+downloads:
+
+```bash
+venv/bin/python tam_build.py --refresh-cache
+```
+
+Useful options:
+
+| Option | What it does |
+|---|---|
+| `--template <file>` | Other template file (default `tam_template.xlsx`) |
+| `--crm <file>` | Other CRM file (default `step1b_segmented.xlsx`) |
+| `--output <file>` | Other output name (default `tam_<date>.xlsx`) |
+| `--refresh-cache` | Download all registers again (use in the yearly run) |
+| `--offline` | Only use cached downloads |
+| `--dry-run` | Everything up to the AI estimate; no AI call, no output |
+| `--no-ai` | No AI at all: cooperations keep a generic segment and are flagged, name matching pass 2 is skipped |
+| `--max-cost <usd>` | Cost cap for this run (default 50) |
+
+**Cost cap.** The tool prints its estimate before any AI call and tracks the
+real spend during the run. If the cap would be exceeded it stops cleanly, the
+caches are saved, and a re-run resumes where it stopped. Governmental accounts
+are processed first, so a cap never starves them. Because both AI steps cache
+their answers (cooperation classification per entity, matches per account), a
+repeat run costs very little.
+
+### Step D: reading the output
+
+The result is `tam_<date>.xlsx` (gitignored) with these sheets:
+
+| Sheet | Contents | Use in Power BI |
+|---|---|---|
+| `TAM` | One row per (template row x entity in the selected segments): company, sales unit, core product, country, `entity_id`, name, `detailed_segment`, `population`, `in_tam`, `in_tam_reason`, number of matched accounts | The white space base |
+| `CRM matches` | One row per matched account: `entity_id`, `accountid`, CRM name, `match_pass`, `match_reason`, `confidence` | Join revenue per `accountid` to `entity_id`, then to `TAM` (black space) |
+| `Entities` | The full master list with all attributes (kind, region, ids, population method, source and date) | Audit, optional dimension table |
+| `Memberships` | Cooperation `entity_id` -> member `entity_id`, with the cooperation's `detailed_segment` and join date | Members of a paying cooperation count as covered |
+| `CRM unmatched` | Governmental or unknown CRM accounts in NL/BE/DE without an entity, with best candidate and why it was rejected. Accounts abroad that step 1b marked Governmental appear with reason "land buiten scope" | Spot paying customers that are missing in the TAM |
+| `Run log` | Inputs, per-source status and dates, counts per country and kind, counts per `in_tam` status, population-unknown counts, AI calls and cache hits, product strays, new segment values | Check after every run |
+
+**`in_tam` values**
+
+| Value | Meaning |
+|---|---|
+| `yes` | In the TAM for this product |
+| `no - below cutoff` | Population below `min_population` |
+| `no - excluded kind` | Its detailed segment is in `excluded_kinds` |
+| `unknown - population missing` | A cut-off is set but the population is not known |
+
+**`match_pass` values (sheet `CRM matches`)**
+
+| Value | Meaning |
+|---|---|
+| `rule` | Free, deterministic: exact company number (KvK/KBO) or unique normalised name within a compatible kind, with postcode as tie-break for German municipalities |
+| `ai` | The AI chose between a shortlist of candidates |
+| `override` | Set by you in `match_overrides` |
+
+**Memberships and covered members.** Only direct cooperation memberships are
+exported, never the territorial relation province/district/state ->
+municipality (otherwise one paying province would mark all its municipalities
+as covered). The sheet carries the cooperation's `detailed_segment`, so Power
+BI decides which kinds of cooperation make their members covered (for example
+only shared service and IT cooperations). Cooperations of cooperations are not
+chained.
+
+### Reviewing the matches
+
+1. Open `CRM matches` and filter `confidence = low` (AI matches the model was
+   not sure about). They are kept in the result, so check them.
+2. Open `CRM unmatched` and look for customers that should have matched.
+3. Fix a wrong or missing match in sheet `match_overrides` of the template
+   (CRM `accountid` and the `entity_id` it belongs to; an empty `entity_id`
+   means "this account is not a TAM entity"), then run again. Overrides win
+   over rules and AI. An override pointing at an unknown `entity_id` is
+   reported as an ERROR in the run log, not silently skipped.
+
+### Yearly refresh
+
+1. Fresh CRM export (step 0), then step 1 and step 1b (the segment cache keeps
+   this cheap).
+2. `venv/bin/python tam_build.py --make-template --update`, and let the
+   business check the new rows.
+3. `--dry-run`, check the estimate against the cap.
+4. Real run with `--refresh-cache`, then review `Run log`, low-confidence
+   matches and `CRM unmatched`.
+
+### Notes for the Power BI model
+
+- **White space value** = `population x municipal ARPU per inhabitant x factor
+  per detailed segment` (for example a province pays roughly 10% of the
+  municipal rate per inhabitant). The business defines and maintains the
+  factor table, keyed on `detailed_segment`.
+- Rows with `in_tam = unknown - population missing` have no euro value; Power
+  BI decides how to show them.
+- Populations are not deduplicated between levels: a province and its
+  municipalities both carry their population. The per-kind factor takes care
+  of this.
+- Black space uses recurring revenue only (`Billing Type = Recurring`).
+- **Phase 2, winnable per year**: `winnable per year = white space value x
+  churn rate`. With 10% churn, about 10% of the white space comes up for grabs
+  each year (assumption: competitors churn like we do). This ignores that the
+  winnable share shrinks as market share grows. Use the churn rate of the same
+  core product (and country if available). Computed in Power BI; the tool needs
+  nothing extra.
+
+### Known limitations
+
+These are visible in the `Run log`; none stops the run.
+
+- **Belgian police zones**: 552 of 565 zones are covered (the German-speaking
+  community and a few others are missing in the source table).
+- **Population unknown**: Aruba and the Walloon-Brussels Federation,
+  Walloon and Brussels intercommunales (no member lists), most German
+  Zweckverbaende and 28 of 30 IT Zweckverbaende. They appear with
+  `population_method = unknown`.
+- **28 Saxon Verwaltungsgemeinschaften** could not be tied to their executing
+  municipality and are modelled as Verband entities, so they are segmented as
+  Municipal federation.
+- **Dutch cooperations that list dissolved municipalities** (old member codes
+  after a merger, for example a youth care cooperation in the Rotterdam area)
+  understate their population; old codes are not remapped.
+- **Predecessor aliases** (CRM accounts still named after a merged municipality)
+  are sparse for BE and DE; unmatched ones show up in `CRM unmatched`.
+- **No KBO register yet**: Belgian matching on company number only works where
+  the Flemish portal carries it.
+- A KvK/KBO number shared by several entities is never used for a rule match;
+  those accounts go to name matching.
+
+---
+
 ## Useful options (step 1b)
 
 | Option | What it does |
@@ -420,3 +625,4 @@ classifications. If you ever want to force a complete re-classification
 ## Future steps (to be added to this manual)
 
 - Importing the result columns into Dynamics 365
+- Upgrading step 2 to the official registers used by the TAM tool

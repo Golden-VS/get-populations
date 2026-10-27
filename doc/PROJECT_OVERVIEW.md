@@ -1,6 +1,6 @@
 # CRM Account Enrichment - What We Built and Where We Stand
 
-*Last updated: 10 June 2026*
+*Last updated: 27 October 2026*
 
 ## What is this project?
 
@@ -63,6 +63,17 @@ credits**, which comfortably covers the first full run (estimated $15 to $25,
 including web searches for the hard cases) and leaves room for re-runs and
 corrections. After that, yearly refreshes only process new accounts and are
 expected to cost a few dollars at most.
+
+## New: the TAM / white space list
+
+Besides enriching our own accounts, a separate program now builds a list of
+**all** government organisations in the Netherlands, Belgium and Germany from
+official registers, with their population, and links our accounts to it. The
+business says per product which kinds of organisation belong to its market;
+Power BI then shows how much of that market we already serve and how much is
+still open (white space). It runs once a year and costs a few dollars of AI
+usage at most, with a hard cap of $50 per run. It is finished and waiting for
+its first real run.
 
 ## What is next
 

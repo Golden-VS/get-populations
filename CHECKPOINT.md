@@ -1,7 +1,7 @@
 # CRM Population Enrichment - Project Checkpoint
 
 > Handoff document for continuing this project in a fresh Claude Code session.
-> Last updated: 2026-06-16
+> Last updated: 2026-10-27
 
 ---
 
@@ -190,6 +190,49 @@ Run `git log --oneline` for the complete list.
 - Review filters: `proces` "geen match"/"niet in" = misses; `proces` "LET OP"
   = unresolved name collision / non-exact match; `population_gewijzigd` =
   what would change in the CRM.
+
+---
+
+## TAM / whitespace feature (added 2026-10-27)
+
+**Status**: implemented on branch `feature/tam-whitespace` (not yet merged to
+`main`; merge after the first real run is reviewed). Spec:
+`doc/specs/2026-10-26-tam-whitespace-design.md` (section 14 wins where it
+differs). Operator runbook: MANUAL section 7.
+
+**What it is**: `tam_build.py` builds a master list of all governmental bodies
+in NL/BE/DE from official registers, matches CRM accounts to it (rules first,
+Claude for the rest), and writes `tam_<date>.xlsx` (sheets TAM, CRM matches,
+Entities, Memberships, CRM unmatched, Run log) for Power BI white/black space.
+
+**Files**: `tam_build.py` (CLI), `tam/` package (`config`, `entities`,
+`sources/` register loaders, `hand_tables*`, `master`, `classify`, `matching`,
+`ai`, `template`, `tam_rows`, `output`), `tam_config.example.json`
+(real `tam_config.json` and `.env` are gitignored), tests in `tests/`.
+
+**How to run** (yearly): fresh CRM export -> step 1 -> step 1b (`set -a; . ./.env;
+set +a` first) -> `tam_build.py --make-template` (or `--make-template --update`)
+-> business fills `tam_definitions` -> `--dry-run` (AI estimate vs $50 cap) ->
+real run with `--refresh-cache` -> review low-confidence matches and
+`CRM unmatched`, correct via `match_overrides`.
+
+**Open points**
+- The OP (Flemish organisation portal) dump licence is unverified; check
+  before relying on it commercially.
+- First real run on `input_crm_27-10-2026.csv` still to be reviewed with the
+  user (steps 1 and 1b were already re-run on it).
+- Known data limitations (also in MANUAL): police zones 552/565 BE (DG gap),
+  Aruba/FWB population unknown, 28 Saxon VGs as Verband fallback, most IT
+  Zweckverbaende and all other Zweckverbaende population unknown, sparse
+  predecessor aliases for BE/DE, NL GR member codes of dissolved municipalities
+  (Jeugdhulp Rijnmond) understate population, Walloon/Brussels
+  intercommunales population unknown, no KBO register.
+- Deferred (spec 12 and 14): step 2 upgrade to the official registers (open
+  item 5 below, still open); KBO open data for W/B regies and official ids;
+  step 1b move to Opus 5.5 and the fixed detailed-segment list; non-governmental
+  segments; members/population for W/B intercommunales and non-IT
+  Zweckverbaende; code-based predecessor map for NL GR member codes; chaining
+  of cooperations of cooperations.
 
 ---
 

@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
 from rapidfuzz import fuzz, process
 
-from step2_enrich import normalize
+from step2_enrich import _plz_prefix_score, normalize
 from tam.config import CRM_COUNTRY_TO_TAM
 
 log = logging.getLogger(__name__)
@@ -52,6 +53,16 @@ TYPE_TO_KINDS: dict[str, set[str]] = {
     'amt': {'de_gemeindeverband', 'de_gemeinde'},
     'verwaltungsgemeinschaft': {'de_gemeindeverband', 'de_gemeinde'},
     'zweckverband': {'de_zweckverband', 'de_it_zweckverband'},
+}
+# Primaire kind per type: bij meerdere naamtreffers gaan deze voor (R15), zodat een
+# Verbandsgemeinde niet op haar gelijknamige zetelgemeente valt en omgekeerd
+PRIMARY_KINDS: dict[str, set[str]] = {
+    'verbandsgemeinde': {'de_gemeindeverband'},
+    'amt': {'de_gemeindeverband'},
+    'verwaltungsgemeinschaft': {'de_gemeindeverband'},
+    'gemeinde_de': {'de_gemeinde', 'de_kreisfreie_stadt'},
+    'landkreis': {'de_landkreis'},
+    'landratsamt': {'de_landkreis'},
 }
 # Overheidstypes = alle types met verenigbare kinds (bepalen mede de prioriteit)
 GOV_TYPES = frozenset(TYPE_TO_KINDS)
@@ -118,6 +129,9 @@ def crm_in_scope(crm: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     )
     in_country = country.isin(CRM_COUNTRY_TO_TAM.keys())
     scope = crm[in_country & ~commercial].copy()
+    log.info('CRM-scope: %d accounts met onbekend land of land buiten scope (OTHER of leeg) '
+             'weggelaten, %d zeker-commerciele accounts weggelaten',
+             int((~in_country).sum()), int((in_country & commercial).sum()))
     scope['tam_country'] = country[scope.index].map(CRM_COUNTRY_TO_TAM)
     scope['priority'] = [_priority(r) for _, r in scope.iterrows()] if len(scope) else []
 
@@ -150,6 +164,8 @@ def normalize_company_number(value, country: str) -> str | None:
             s = '0' + s
         return s if re.fullmatch(r'\d{10}', s) else None
     s = re.sub(r'\s', '', s)
+    if re.fullmatch(r'\d{7}', s):
+        s = '0' + s  # voorloopnul verloren in Excel; KvK heeft altijd 8 cijfers (R14)
     return s if re.fullmatch(r'\d{8}', s) else None
 
 
@@ -164,33 +180,21 @@ def crm_name_key(row) -> str:
     return _strip_prefix(normalize(name))
 
 
+_PLZ_RE = re.compile(r'(?<!\d)\d{5}(?!\d)')
+
+
 def _crm_postcode(row) -> str:
-    """DE-postcode: cx_address3_postalcode, anders een 5-cijferig getal uit address1_composite."""
+    """DE-postcode: cx_address3_postalcode, anders een los 5-cijferig getal uit address1_composite."""
     raw = _text(row.get('cx_address3_postalcode'))
     if re.fullmatch(r'\d{4}', raw):
         raw = '0' + raw  # voorloopnul verloren in Excel
-    m = re.search(r'\d{5}', raw)
-    if m:
-        return m.group(0)
-    m = re.search(r'\b\d{5}\b', _text(row.get('address1_composite')))
+    m = _PLZ_RE.search(raw) or _PLZ_RE.search(_text(row.get('address1_composite')))
     return m.group(0) if m else ''
 
 
-def _plz_tokens(value) -> list[str]:
-    return re.findall(r'\d{5}', _text(value))
-
-
 def _plz_closeness(crm_plz: str, entity_postcode) -> int:
-    """Lengte van het langste gemeenschappelijke prefix (5 = gelijke postcode)."""
-    best = 0
-    for token in _plz_tokens(entity_postcode):
-        n = 0
-        for a, b in zip(crm_plz, token):
-            if a != b:
-                break
-            n += 1
-        best = max(best, n)
-    return best
+    """Gemeenschappelijke prefixlengte (5 = gelijke postcode), via step2_enrich."""
+    return _plz_prefix_score(crm_plz, _text(entity_postcode))
 
 
 # ---------- naamindex ----------
@@ -258,37 +262,42 @@ def _company_index(entities) -> dict[tuple[str, str], list[str]]:
 
 # ---------- pass 1 ----------
 
-def _rule_match(row, index, company_index, kinds_by_id, postcode_by_id):
+def _rule_match(row, index, company_index, postcode_by_id):
     """(entity_id, reden) of None voor een CRM-rij volgens de regels van pass 1."""
     country = row['tam_country']
     allowed = TYPE_TO_KINDS.get(_text(row.get('detected_type')), set())
 
-    # 1. KvK/KBO-nummer
+    # 1. KvK/KBO-nummer; een nummer dat bij meer dan een entiteit hoort matcht nooit (R13)
     number = normalize_company_number(row.get('cx_kvknummer'), country)
     if number:
         ids = company_index.get((country, number), [])
-        if len(ids) > 1 and allowed:
-            ids = [i for i in ids if kinds_by_id.get(i) in allowed]
         if len(ids) == 1:
             return ids[0], RULE_REASON_ID
 
     # 2. naam binnen verenigbare kinds; zonder kinds de ruwe naam tegen alle kinds
+    detected_type = _text(row.get('detected_type'))
     raw = normalize(_text(row.get('name')))
     if allowed:
         hits = [h for h in _lookup(index, country, [crm_name_key(row), raw]) if h[1] in allowed]
     else:
         hits = _lookup(index, country, [raw])
+    # bij meerdere treffers gaat de primaire kind van het CRM-type voor (R15)
+    primary = PRIMARY_KINDS.get(detected_type)
+    if len(hits) > 1 and primary:
+        preferred = [h for h in hits if h[1] in primary]
+        if preferred:
+            hits = preferred
     if len(hits) == 1:
         return hits[0][0], hits[0][2]
 
-    # 3. DE: meerdere gelijknamige treffers, beslissen op postcode
-    if len(hits) > 1 and country == 'DE':
+    # 3. DE: meerdere gelijknamige treffers van dezelfde kind, beslissen op postcode;
+    #    gemengde kinds gaan naar pass 2
+    if len(hits) > 1 and country == 'DE' and len({h[1] for h in hits}) == 1:
         plz = _crm_postcode(row)
         if plz:
-            exact = [h for h in hits if plz in _plz_tokens(postcode_by_id.get(h[0]))]
+            exact = [h for h in hits if _plz_closeness(plz, postcode_by_id.get(h[0])) == 5]
             if not exact:
-                exact = [h for h in hits
-                         if any(t[:3] == plz[:3] for t in _plz_tokens(postcode_by_id.get(h[0])))]
+                exact = [h for h in hits if _plz_closeness(plz, postcode_by_id.get(h[0])) >= 3]
             if len(exact) == 1:
                 return exact[0][0], RULE_REASON_POSTCODE
     return None
@@ -297,12 +306,11 @@ def _rule_match(row, index, company_index, kinds_by_id, postcode_by_id):
 def pass1(crm_scope, entities, index) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(matched, rest): regelgebaseerde matches en de overige in-scope rijen (alle kolommen)."""
     company_index = _company_index(entities)
-    kinds_by_id = dict(zip(entities['entity_id'], entities['kind']))
     postcode_by_id = dict(zip(entities['entity_id'], entities['postcode']))
     matched = []
     rest_idx = []
     for idx, row in crm_scope.iterrows():
-        found = _rule_match(row, index, company_index, kinds_by_id, postcode_by_id)
+        found = _rule_match(row, index, company_index, postcode_by_id)
         if found is None:
             rest_idx.append(idx)
             continue
@@ -316,37 +324,50 @@ def pass1(crm_scope, entities, index) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 # ---------- kandidaten (voor pass 2) ----------
 
-class _Prepared:
-    """Voorberekende keuzelijsten per land; deepcopy geeft hetzelfde object terug, zodat
-    pandas (dat `attrs` bij elke bewerking diep kopieert) er niet traag van wordt."""
+_CHOICE_COLUMNS = ['entity_id', 'name', 'kind', 'region', 'postcode', 'via', 'key', 'norm']
 
-    def __init__(self, frame: pd.DataFrame, info: dict):
-        self.choices = frame['key'].tolist()
-        self.entity_ids = frame['entity_id'].tolist()
-        self.vias = frame['via'].tolist()
-        self.norms = frame['norm'].tolist()
-        self.info = info
-        self.alias_pos: dict[str, list[int]] = {}
+
+@dataclass
+class CountryChoices:
+    """Keuzetabel van een land voor `candidates()`, met voorberekende lijsten voor rapidfuzz.
+
+    `frame`: een rij per entiteitsnaam (via 'naam') en per alias (via 'alias: <alias>, <reden>'),
+    kolommen entity_id, name, kind, region, postcode, via, key (prefixvrij genormaliseerd),
+    norm (genormaliseerd). `info`: entity_id -> entity_id/name/kind/region/postcode.
+    """
+    frame: pd.DataFrame
+    info: dict
+    choices: list = field(init=False)
+    entity_ids: list = field(init=False)
+    vias: list = field(init=False)
+    norms: list = field(init=False)
+    alias_pos: dict = field(init=False)
+
+    def __post_init__(self):
+        self.choices = self.frame['key'].tolist()
+        self.entity_ids = self.frame['entity_id'].tolist()
+        self.vias = self.frame['via'].tolist()
+        self.norms = self.frame['norm'].tolist()
+        self.alias_pos = {}
         for pos, (eid, via) in enumerate(zip(self.entity_ids, self.vias)):
             if via != 'naam':
                 self.alias_pos.setdefault(eid, []).append(pos)
 
-    def __deepcopy__(self, memo):
-        return self
+    @classmethod
+    def from_frame(cls, frame: pd.DataFrame) -> 'CountryChoices':
+        info = {r.entity_id: {'entity_id': r.entity_id, 'name': r.name, 'kind': r.kind,
+                              'region': r.region, 'postcode': r.postcode}
+                for r in frame[frame['via'] == 'naam'].itertuples(index=False)}
+        return cls(frame, info)
 
-    def __copy__(self):
-        return self
 
+def entities_by_country(entities, aliases=None) -> dict[str, CountryChoices]:
+    """Per land een `CountryChoices` (keuzetabel + voorberekende lijsten) voor `candidates()`.
 
-def entities_by_country(entities, aliases=None) -> dict[str, pd.DataFrame]:
-    """Per land een keuzetabel voor `candidates()`.
-
-    Een rij per entiteitsnaam (via 'naam') en per alias (via 'alias: <alias>, <reden>'),
-    kolommen entity_id, name, kind, region, postcode, via, key (prefixvrij genormaliseerd),
-    norm (genormaliseerd). `attrs['prepared']` bevat de voorberekende keuzelijst voor
-    rapidfuzz en entity_id -> entiteitsgegevens, zodat fuzzy zoeken per account goedkoop is.
+    Zonder `aliases` bevat de tabel alleen entiteitsnamen; geef de aliassen mee zodat
+    aliasnamen ook fuzzy gevonden worden.
     """
-    out: dict[str, pd.DataFrame] = {}
+    out: dict[str, CountryChoices] = {}
     alias_rows = aliases if aliases is not None else pd.DataFrame(
         columns=['alias_name', 'country', 'entity_id', 'reason'])
     for country, group in entities.groupby('country'):
@@ -366,10 +387,7 @@ def entities_by_country(entities, aliases=None) -> dict[str, pd.DataFrame]:
             via = f'alias: {_text(a.alias_name)}' + (f', {reason}' if reason else '')
             norm = normalize(_text(a.alias_name))
             rows.append({**base, 'via': via, 'key': _strip_prefix(norm), 'norm': norm})
-        frame = pd.DataFrame(rows, columns=['entity_id', 'name', 'kind', 'region', 'postcode',
-                                            'via', 'key', 'norm'])
-        frame.attrs['prepared'] = _Prepared(frame, info)
-        out[country] = frame
+        out[country] = CountryChoices(pd.DataFrame(rows, columns=_CHOICE_COLUMNS), info)
     return out
 
 
@@ -382,15 +400,15 @@ def candidates(row, entities_by_country, index, k=10) -> list[dict]:
     Zijn er meer dan 15 exacte treffers, dan blijven de 15 met de dichtste postcode.
     """
     country = _text(row.get('tam_country'))
-    frame = entities_by_country.get(country)
-    if frame is None or not len(frame):
-        return []
-    prep = frame.attrs.get('prepared')
+    prep = entities_by_country.get(country)
     if prep is None:
-        info = {r.entity_id: {'entity_id': r.entity_id, 'name': r.name, 'kind': r.kind,
-                              'region': r.region, 'postcode': r.postcode}
-                for r in frame[frame['via'] == 'naam'].itertuples(index=False)}
-        prep = _Prepared(frame, info)
+        return []
+    if isinstance(prep, pd.DataFrame):
+        log.warning('candidates(): keuzetabel voor %s is niet voorberekend (gebruik '
+                    'entities_by_country); wordt per aanroep opgebouwd', country)
+        prep = CountryChoices.from_frame(prep)
+    if not prep.entity_ids:
+        return []
     info = prep.info
     key = crm_name_key(row)
     raw = normalize(_text(row.get('name')))
@@ -402,15 +420,19 @@ def candidates(row, entities_by_country, index, k=10) -> list[dict]:
 
     # exacte treffers (elk kind)
     exact = []
-    for entity_id, _kind, reason in _lookup(index, country, lookup_keys):
-        if entity_id not in info:
-            continue
-        via = 'naam'
-        if reason != 'same name':
-            via = next((prep.vias[p] for p in prep.alias_pos.get(entity_id, [])
-                        if prep.norms[p] in lookup_keys or prep.choices[p] in lookup_keys),
-                       f'alias: {reason}')
-        exact.append({**info[entity_id], 'score': 100, 'via': via})
+    seen_ids = set()
+    for lookup_key in lookup_keys:
+        for entity_id, _kind, reason in index.get((country, lookup_key), []):
+            if entity_id not in info or entity_id in seen_ids:
+                continue
+            seen_ids.add(entity_id)
+            via = 'naam'
+            if reason != 'same name':
+                # aliastekst uit de keuzetabel; zonder aliassen daar de gevonden (genormaliseerde) naam
+                via = next((prep.vias[p] for p in prep.alias_pos.get(entity_id, [])
+                            if prep.norms[p] == lookup_key or prep.choices[p] == lookup_key),
+                           f'alias: {lookup_key}, {reason}')
+            exact.append({**info[entity_id], 'score': 100, 'via': via})
     exact.sort(key=lambda c: -closeness(c['entity_id']))
 
     # fuzzy top-k (unieke entiteiten, beste naam/alias per entiteit)
@@ -453,8 +475,10 @@ def apply_overrides(matches: pd.DataFrame, overrides: pd.DataFrame, entity_ids: 
         entity_id = _text(getattr(o, 'entity_id', ''))
         reason = _text(getattr(o, 'reason', ''))
         if entity_id and entity_id not in entity_ids:
-            warnings.append(f'FOUT: override voor account {accountid} verwijst naar onbekende '
-                            f'entity_id {entity_id}; genegeerd')
+            message = (f'FOUT: override voor account {accountid} verwijst naar onbekende '
+                       f'entity_id {entity_id}; genegeerd')
+            log.error(message)
+            warnings.append(message)
             continue
         out = out[out['accountid'] != accountid]
         if not entity_id:

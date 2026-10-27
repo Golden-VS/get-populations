@@ -108,7 +108,6 @@ def test_be_company_number_normalised():
     assert normalize_company_number('be0123456789', 'BE') == '0123456789'
     assert normalize_company_number('12345', 'BE') is None
     assert normalize_company_number('0123 4567', 'NL') == '01234567'
-    assert normalize_company_number('1234567', 'NL') is None
     assert normalize_company_number('HRB 1234', 'DE') is None
     assert normalize_company_number(float('nan'), 'NL') is None
 
@@ -383,3 +382,133 @@ def test_override_replaces_and_unknown_id_warns():
     assert by_acc.loc['acc-9', 'match_pass'] == 'override'
     assert by_acc.loc['acc-9', 'match_reason'] == 'override'
     assert len(warnings) == 1 and 'E-UNKNOWN' in warnings[0] and 'acc-1' in warnings[0]
+
+
+# ---------- review fix round 1 ----------
+
+def _adenau():
+    return ents(
+        dict(entity_id='DE-ARS-071315003', name='Verbandsgemeinde Adenau', match_name='Adenau',
+             country='DE', kind='de_gemeindeverband'),
+        dict(entity_id='DE-AGS-07131003', name='Adenau', country='DE', kind='de_gemeinde',
+             postcode='53518'),
+    )
+
+
+def test_verband_account_matches_verband_not_seat_gemeinde():
+    frame = crm(dict(name='Verbandsgemeinde Adenau', canonical_name='Adenau',
+                     detected_type='verbandsgemeinde', detected_country='DE',
+                     cx_address3_postalcode='53518'))
+    matched, rest = run_pass1(frame, _adenau())
+    assert matched_ids(matched) == {'acc-0': 'DE-ARS-071315003'}
+    assert matched.iloc[0]['match_reason'] == 'same name'
+
+
+def test_gemeinde_account_matches_gemeinde_not_verband():
+    frame = crm(dict(name='Gemeinde Adenau', canonical_name='Adenau', detected_type='gemeinde_de',
+                     detected_country='DE'))
+    matched, _ = run_pass1(frame, _adenau())
+    assert matched_ids(matched) == {'acc-0': 'DE-AGS-07131003'}
+
+
+def test_mixed_kind_tie_goes_to_rest():
+    entities = ents(
+        dict(entity_id='DE-AGS-1', name='Hof', country='DE', kind='de_gemeinde', postcode='95028'),
+        dict(entity_id='DE-AGS-2', name='Hof', country='DE', kind='de_kreisfreie_stadt',
+             postcode='95030'),
+    )
+    frame = crm(dict(name='Stadt Hof', canonical_name='Hof', detected_type='gemeinde_de',
+                     detected_country='DE', cx_address3_postalcode='95028'))
+    matched, rest = run_pass1(frame, entities)
+    assert len(matched) == 0
+    assert list(rest['accountid']) == ['acc-0']
+
+
+def test_shared_company_number_never_rule_matches():
+    entities = ents(
+        dict(entity_id='NL-A', name='Amsterdam', country='NL', kind='nl_gemeente',
+             official_ids='kvk:34366966'),
+        dict(entity_id='NL-B', name='Stadsdeel Noord', country='NL', kind='nl_stadsdeel',
+             official_ids='kvk:34366966'),
+    )
+    frame = crm(
+        dict(name='Gemeente Amsterdam', canonical_name='Amsterdam', detected_type='gemeente_nl',
+             cx_kvknummer='34366966'),
+        dict(name='Iets', detected_type='onbekend', cx_kvknummer='34366966'),
+    )
+    matched, rest = run_pass1(frame, entities)
+    assert matched_ids(matched) == {'acc-0': 'NL-A'}
+    assert matched.iloc[0]['match_reason'] == 'same name'
+    assert list(rest['accountid']) == ['acc-1']
+
+
+def test_nl_kvk_seven_digits_left_padded():
+    assert normalize_company_number('1234567', 'NL') == '01234567'
+    assert normalize_company_number('1234567.0', 'NL') == '01234567'
+    assert normalize_company_number('123456', 'NL') is None
+
+
+def test_postcode_needs_word_boundaries():
+    entities = ents(
+        dict(entity_id='DE-AGS-1', name='Neustadt', country='DE', kind='de_gemeinde', postcode='12345'),
+        dict(entity_id='DE-AGS-2', name='Neustadt', country='DE', kind='de_gemeinde', postcode='99999'),
+    )
+    frame = crm(
+        dict(name='Stadt Neustadt', canonical_name='Neustadt', detected_type='gemeinde_de',
+             detected_country='DE', address1_composite='Postfach 1234567, Neustadt'),
+        dict(name='Stadt Neustadt', canonical_name='Neustadt', detected_type='gemeinde_de',
+             detected_country='DE', cx_address3_postalcode='123456'),
+        dict(name='Stadt Neustadt', canonical_name='Neustadt', detected_type='gemeinde_de',
+             detected_country='DE', cx_address3_postalcode='D-12345'),
+    )
+    matched, rest = run_pass1(frame, entities)
+    assert matched_ids(matched) == {'acc-2': 'DE-AGS-1'}
+    assert list(rest['accountid']) == ['acc-0', 'acc-1']
+
+
+def test_alias_via_fallback_names_alias():
+    entities, alias_frame = _cand_setup()
+    index = build_name_index(entities, alias_frame)
+    row = {'name': 'Gemeente Bussum', 'canonical_name': 'Bussum', 'tam_country': 'NL',
+           'priority': 'gov', 'detected_type': 'gemeente_nl'}
+    cands = candidates(row, entities_by_country(entities), index)  # zonder aliassen voorberekend
+    assert cands[0]['entity_id'] == 'NL-CBS-GM1942'
+    assert cands[0]['via'] == 'alias: bussum, predecessor, merged 2016'
+
+
+def test_entities_by_country_container_and_plain_frame_warning(caplog):
+    entities, alias_frame = _cand_setup()
+    by_country = entities_by_country(entities, alias_frame)
+    assert isinstance(by_country['NL'].frame, pd.DataFrame)
+    index = build_name_index(entities, alias_frame)
+    row = {'name': 'Utrecht', 'canonical_name': 'Utrecht', 'tam_country': 'NL', 'priority': 'gov',
+           'detected_type': 'gemeente_nl'}
+    with caplog.at_level('WARNING', logger='tam.matching'):
+        cands = candidates(row, {'NL': by_country['NL'].frame}, index)
+    assert [c['entity_id'] for c in cands][0] == 'NL-CBS-GM0002'
+    assert any('voorberekend' in r.getMessage() for r in caplog.records)
+
+
+def test_scope_logs_dropped_counts(caplog):
+    frame = crm(
+        dict(name='Gemeente A'),
+        dict(name='Foreign Ltd', detected_country='OTHER', **{'Segment (category)': 'Commercial'}),
+        dict(name='Leeg', detected_country=float('nan')),
+        dict(name='Shop BV', detected_type='commercieel_of_overig',
+             **{'Segment (category)': 'Commercial', 'segment_confidence': 'high'}),
+    )
+    with caplog.at_level('INFO', logger='tam.matching'):
+        crm_in_scope(frame)
+    text = ' '.join(r.getMessage() for r in caplog.records)
+    assert '2 accounts met onbekend land' in text
+    assert '1 zeker-commerciele accounts' in text
+
+
+def test_override_unknown_id_logs_error(caplog):
+    matches = _matches(('E1', 'acc-1', 'Gemeente A', 'rule', 'same name', 'high'))
+    overrides = pd.DataFrame([{'accountid': 'acc-1', 'entity_id': 'E-UNKNOWN', 'reason': 'typo'}])
+    with caplog.at_level('ERROR', logger='tam.matching'):
+        _, warnings = apply_overrides(matches, overrides, {'E1'})
+    assert warnings[0].startswith('FOUT:')
+    errors = [r for r in caplog.records if r.levelname == 'ERROR']
+    assert len(errors) == 1 and 'E-UNKNOWN' in errors[0].getMessage()

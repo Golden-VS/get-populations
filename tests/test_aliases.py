@@ -32,8 +32,10 @@ class FakeCache:
         return self.tables.get(name, pd.DataFrame())
 
 
-def _entities(ids):
-    rows = [{c: '' for c in ENTITY_COLUMNS} | {'entity_id': i, 'name': i, 'country': i[:2]} for i in ids]
+def _entities(ids, names=None):
+    names = names or {}
+    rows = [{c: '' for c in ENTITY_COLUMNS} | {'entity_id': i, 'name': names.get(i, i), 'country': i[:2]}
+            for i in ids]
     return pd.DataFrame(rows, columns=ENTITY_COLUMNS)
 
 
@@ -46,19 +48,13 @@ def test_nl_parse_with_chain_and_year():
     nl = pd.DataFrame([
         _bind('Q1', 'Bussum', '2016-01-01T00:00:00Z', 'Q2'),
         _bind('Q2', 'Tussenstop', '2018-01-01T00:00:00Z', 'Q3'),
-        _bind('Q3', 'Gooise Meren', '', '', code=''),  # niet gebruikt
+        _bind('Q0', 'Anders', '2001-01-01T00:00:00Z', 'Q3', code='GM1942'),
         _bind('Q9', 'Weesp', '2022-03-24T00:00:00Z', 'Q4', code='0363'),
         _bind('Q1', 'Bussum', '2016-01-01T00:00:00Z', 'Q2'),  # dubbel
         _bind('Q7', 'Nergens', '2000-01-01T00:00:00Z', 'Q8', code='9999'),  # onbekend
         _bind('Q5', 'Split', '2000-01-01T00:00:00Z', 'Q4', code='0363'),
         _bind('Q5', 'Split', '2000-01-01T00:00:00Z', 'Q6', code='GM1942'),  # dubbelzinnig
     ])
-    nl.loc[nl.index[1], 'succ'] = 'Q3'
-    nl.loc[nl.index[2], ['pred', 'succ']] = ['Q3x', 'Q3x']  # ruis
-    nl = nl.drop(index=2)
-    # Q2 -> Q3 (Q3 heeft code 1942 via een eigen regel)
-    nl = pd.concat([nl, pd.DataFrame([_bind('Q0', 'Anders', '2001-01-01T00:00:00Z', 'Q3', code='GM1942')])],
-                   ignore_index=True)
     ents = _entities(['NL-GM-GM0363', 'NL-GM-GM1942'])
     res = load_predecessors(FakeCache({'aliases_nl': nl}), ents, pd.DataFrame(columns=ALIAS_COLUMNS))
     got = {r.alias_name: (r.entity_id, r.reason) for r in res.aliases.itertuples()}
@@ -108,7 +104,7 @@ def test_de_successor_via_alias_ids_and_alias_table():
     assert got == {'Altdorf': 'DE-AGS-01002000', 'Oberdorf': 'DE-AGS-01002000'}
 
 
-def test_de_falls_back_to_chunks(monkeypatch):
+def test_de_falls_back_to_chunks():
     class Boom(FakeCache):
         def sparql(self, name, query):
             self.calls.append(name)
@@ -128,3 +124,40 @@ def test_total_failure_gives_status_not_crash():
     res = load_predecessors(Dead(), _entities([]), pd.DataFrame(columns=ALIAS_COLUMNS))
     assert res.aliases.empty
     assert res.status[0].name == 'aliases' and not res.status[0].ok
+
+
+def test_collision_with_other_entity_dropped_own_name_silent():
+    nl = pd.DataFrame([
+        _bind('Q1', 'Hengelo', '2000-01-01T00:00:00Z', 'Q2', code='0363'),
+        _bind('Q3', 'Weesp', '2000-01-01T00:00:00Z', 'Q2', code='0363'),
+        _bind('Q4', 'Nieuw', '2000-01-01T00:00:00Z', 'Q2', code='0363'),
+    ])
+    ents = _entities(['NL-GM-GM0363', 'NL-GM-GM0164'],
+                     {'NL-GM-GM0363': 'Weesp', 'NL-GM-GM0164': 'Hengelo'})
+    res = load_predecessors(FakeCache({'aliases_nl': nl}), ents, pd.DataFrame(columns=ALIAS_COLUMNS))
+    assert list(res.aliases.alias_name) == ['Nieuw']
+    assert '1 naamsbotsing' in res.status[0].message
+
+
+def test_be_successor_by_entity_name():
+    be = pd.DataFrame([_bind('Q1', 'Oud', '2019-01-01T00:00:00Z', 'Q2', succ_label='Nieuwstad')])
+    ents = _entities(['BE-NIS-11111'], {'BE-NIS-11111': 'Nieuwstad'})
+    res = load_predecessors(FakeCache({'aliases_be': be}), ents, pd.DataFrame(columns=ALIAS_COLUMNS))
+    assert res.aliases.iloc[0].entity_id == 'BE-NIS-11111'
+
+
+def test_de_five_digit_code_ignored():
+    de = pd.DataFrame([_bind('Q1', 'Altkreis', '2008-01-01T00:00:00Z', 'Q2', code='16062')])
+    ents = _entities(['DE-AGS-00016062'])
+    res = load_predecessors(FakeCache({'aliases_de': de}), ents, pd.DataFrame(columns=ALIAS_COLUMNS))
+    assert res.aliases.empty
+    assert '1 opvolger onbekend' in res.status[0].message
+
+
+def test_unpadded_codes():
+    nl = pd.DataFrame([_bind('Q1', 'Oud', '2000-01-01T00:00:00Z', 'Q2', code='363')])
+    be = pd.DataFrame([_bind('Q3', 'Oud BE', '2000-01-01T00:00:00Z', 'Q4', code='1002')])
+    ents = _entities(['NL-GM-GM0363', 'BE-NIS-01002'])
+    res = load_predecessors(FakeCache({'aliases_nl': nl, 'aliases_be': be}), ents,
+                            pd.DataFrame(columns=ALIAS_COLUMNS))
+    assert set(res.aliases.entity_id) == {'NL-GM-GM0363', 'BE-NIS-01002'}

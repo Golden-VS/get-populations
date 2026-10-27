@@ -77,7 +77,8 @@ def _entity_id(country: str, code: str) -> str:
         return f'NL-GM-GM{digits.zfill(4)}'
     if country == 'BE':
         return f'BE-NIS-{code.zfill(5)}'
-    return f'DE-AGS-{code.zfill(8)}'
+    # DE: alleen volledige 8-cijferige Gemeinde-AGS (geen Kreis-sleutels opvullen)
+    return f'DE-AGS-{code}' if len(code) == 8 and code.isdigit() else ''
 
 
 def _is_qid(text: str) -> bool:
@@ -99,10 +100,19 @@ def _col(df: pd.DataFrame, name: str) -> pd.Series:
 
 
 def parse_aliases(df: pd.DataFrame, country: str, entity_ids: set[str],
-                  alias_ids: dict[str, str], alias_lookup: dict[str, set[str]]):
-    """Bindings -> (aliasrijen, aantal overgeslagen). Pure functie."""
+                  alias_ids: dict[str, str], alias_lookup: dict[str, set[str]],
+                  entity_names: dict[str, set[str]] | None = None):
+    """Bindings -> (aliasrijen, tellers). Pure functie.
+
+    entity_names: genormaliseerde entiteitsnaam -> entity_ids (dit land); dient
+    voor de naam-fallback van opvolgers en als botsingscontrole.
+    """
+    entity_names = entity_names or {}
+    counts = {'split': 0, 'unresolved_successor': 0, 'chain': 0, 'nameless': 0,
+              'collision': 0}
+    collisions: list[str] = []
     if df is None or df.empty:
-        return [], 0
+        return [], counts
     df = df.copy()
     for name in ('pred', 'predLabel', 'article', 'end', 'succ', 'succLabel', 'code'):
         df[name] = _col(df, name)
@@ -122,7 +132,8 @@ def parse_aliases(df: pd.DataFrame, country: str, entity_ids: set[str],
     for succ, label in zip(df['succ'], df['succLabel']):
         if succ in qid_entity or not label or _is_qid(label):
             continue
-        targets = alias_lookup.get(normalize(label), set())
+        key = normalize(label)
+        targets = alias_lookup.get(key, set()) | entity_names.get(key, set())
         if len(targets) == 1:
             qid_entity[succ] = next(iter(targets))
 
@@ -131,13 +142,13 @@ def parse_aliases(df: pd.DataFrame, country: str, entity_ids: set[str],
     for pred, succ in zip(df['pred'], df['succ']):
         if pred and succ:
             successors.setdefault(pred, set()).add(succ)
-    edges, skipped = {}, 0
+    edges = {}
     for pred, succs in successors.items():
         targets = {qid_entity.get(s) for s in succs}
         if len(succs) == 1 or (len(targets) == 1 and None not in targets):
             edges[pred] = sorted(succs)[0]
         else:
-            skipped += 1
+            counts['split'] += 1
     resolved = resolve_chain(edges, set(qid_entity))
 
     first = df.drop_duplicates('pred').set_index('pred')
@@ -149,21 +160,35 @@ def parse_aliases(df: pd.DataFrame, country: str, entity_ids: set[str],
     rows, seen = [], set()
     for pred in edges:
         if pred not in resolved:
-            skipped += 1
+            # geen pad naar een huidige entiteit: opvolger onbekend of keten stuk
+            if edges[pred] in qid_entity or edges[pred] in edges:
+                counts['chain'] += 1
+            else:
+                counts['unresolved_successor'] += 1
             continue
         name = _label(first.loc[pred])
         eid = qid_entity[resolved[pred]]
         if not name:
-            skipped += 1
+            counts['nameless'] += 1
             continue
-        key = (name, eid)
-        if key in seen:
+        key = normalize(name)
+        owners = entity_names.get(key, set())
+        if eid in owners:
+            continue  # gelijk aan eigen doelnaam: onschadelijk dubbel
+        if owners:
+            counts['collision'] += 1
+            collisions.append(name)
             continue
-        seen.add(key)
+        if (name, eid) in seen:
+            continue
+        seen.add((name, eid))
         year = years.get(pred, '')
         reason = f'predecessor, merged {year}' if year else 'predecessor'
         rows.append({'alias_name': name, 'country': country, 'entity_id': eid, 'reason': reason})
-    return rows, skipped
+    if collisions:
+        log.warning(f'  aliases {country}: {len(collisions)} botsen met een bestaande '
+                    f'entiteitsnaam: {", ".join(collisions[:20])}')
+    return rows, counts
 
 
 def _fetch(cache, country: str) -> pd.DataFrame:
@@ -194,26 +219,39 @@ def load_predecessors(cache, entities: pd.DataFrame, aliases: pd.DataFrame,
     alias_ids = alias_ids or {}
     entity_ids = set(entities['entity_id']) if len(entities) else set()
     bundle = SourceBundle.empty()
-    all_rows, problems, skipped_total = [], [], 0
+    all_rows, problems = [], []
+    totals = dict.fromkeys(('split', 'unresolved_successor', 'chain', 'nameless', 'collision'), 0)
     for country in ('NL', 'BE', 'DE'):
+        names: dict[str, set[str]] = {}
+        if len(entities):
+            for r in entities[entities['entity_id'].str.startswith(country + '-')].itertuples():
+                key = normalize(r.match_name or r.name)
+                if key:
+                    names.setdefault(key, set()).add(r.entity_id)
         lookup: dict[str, set[str]] = {}
         if aliases is not None and len(aliases):
             for r in aliases[aliases['country'] == country].itertuples():
                 lookup.setdefault(normalize(r.alias_name), set()).add(r.entity_id)
         try:
             df = _fetch(cache, country)
-            rows, skipped = parse_aliases(df, country, entity_ids, alias_ids, lookup)
+            rows, counts = parse_aliases(df, country, entity_ids, alias_ids, lookup, names)
         except Exception as exc:
             log.warning(f'  aliases {country} mislukt: {exc}')
             problems.append(f'{country}: {exc}')
             continue
-        log.info(f'  aliases {country}: {len(rows)} voorgangers, {skipped} overgeslagen')
+        log.info(f'  aliases {country}: {len(rows)} voorgangers; overgeslagen: '
+                 f'{counts["split"]} dubbelzinnig, {counts["unresolved_successor"]} opvolger onbekend, '
+                 f'{counts["chain"]} keten stuk, {counts["nameless"]} zonder naam, '
+                 f'{counts["collision"]} naamsbotsing')
         all_rows.extend(rows)
-        skipped_total += skipped
+        for k, v in counts.items():
+            totals[k] += v
     if all_rows:
         bundle.aliases = pd.DataFrame(all_rows, columns=ALIAS_COLUMNS)
     counts = ', '.join(f'{c} {sum(r["country"] == c for r in all_rows)}' for c in ('NL', 'BE', 'DE'))
-    message = f'{counts}; {skipped_total} overgeslagen'
+    message = (f'{counts}; overgeslagen: {totals["split"]} dubbelzinnig, '
+               f'{totals["unresolved_successor"]} opvolger onbekend, {totals["chain"]} keten stuk, '
+               f'{totals["nameless"]} zonder naam, {totals["collision"]} naamsbotsing')
     if problems:
         message += '; mislukt: ' + ' | '.join(problems)
     bundle.status.append(SourceStatus('aliases', not problems, len(all_rows), '', message))

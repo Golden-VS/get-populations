@@ -12,9 +12,13 @@ _BERLIN_URL = ('https://download.statistik-berlin-brandenburg.de/c3bba10619eb67f
 _HAMBURG_URL = 'https://www.statistik-nord.de/fileadmin/Dokumente/A_I_2_vj_25-4_Zensus22_HH.xlsx'  # A I 2 - vj 4/25 HH
 
 
+_BRON = {_BERLIN_URL: 'Amt für Statistik Berlin-Brandenburg, SB A I 7 - m 12/25',
+         _HAMBURG_URL: 'Statistikamt Nord, A I 2 - vj 4/25 HH'}
+
+
 def _bezirk(slug, stadt, match_name, population, url):
     return {'id': f'DE-HAND-bezirk-{slug}', 'stadt': stadt, 'match_name': match_name,
-            'population': population, 'peildatum': '2025-12-31', 'bron_url': url}
+            'population': population, 'peildatum': '2025-12-31', 'bron': _BRON[url], 'bron_url': url}
 
 
 # Berlin (12) en Hamburg (7): bevolking 31.12.2025, fortschrijving op basis van Zensus 2022.
@@ -50,7 +54,9 @@ DE_BEZIRKE = {
 }
 
 _BEZO_BY = 'https://www.gesetze-bayern.de/Content/Document/BayBezO-7'
-_LVERBO = 'https://lexmea.de/de/gesetz/lverbo-nrw/1'
+# LVerbO NRW op het officiele portaal recht.nrw.de (§ 1 Mitgliedskoerperschaften, geverifieerd 2026-10-27)
+_LVERBO = ('https://recht.nrw.de/lrgv/gesetz/'
+           '17072024-landschaftsverbandsordnung-fuer-das-land-nordrhein-westfalen-lverbo/')
 
 
 def _hkv(slug, members, url, region, match_name=None):
@@ -86,12 +92,15 @@ DE_HOEHERE_KOMMUNALVERBAENDE = {
     # 'vereinigt er die zehn Landkreise und die drei kreisfreien Staedte im Freistaat Sachsen'
     'Kommunaler Sozialverband Sachsen': _hkv('kommunaler-sozialverband-sachsen', ['14'],
                                              'https://www.ksv-sachsen.de/ueber-uns', 'Sachsen', 'KSV Sachsen'),
-    # JSVG (Gesetz ueber den KVJS, 1.7.2004) § 2: 'Mitglieder ... sind alle Stadt- und Landkreise'
+    # JSVG (Gesetz ueber den KVJS, 1.7.2004) § 2: 'Mitglieder ... sind alle Stadt- und Landkreise'.
+    # Secundaire bron (lexaris.de); landesrecht-bw.de niet op tekst te verifieren (JS-portaal).
     'Kommunalverband für Jugend und Soziales Baden-Württemberg': _hkv(
         'kommunalverband-jugend-soziales-bw', ['08'],
         'https://lexaris.de/book/version/documentflat/head/1124002', 'Baden-Württemberg', 'KVJS'),
     # Gebied van de vroegere Regierungsbezirk Pfalz: de 16 Landkreise en kreisfreie Staedte der Pfalz
     # (RB 073 zonder Rheinhessen: Mainz 07315, Worms 07319, Alzey-Worms 07331, Mainz-Bingen 07339).
+    # Secundaire bron (Landeszentrale fuer politische Bildung RLP); de Bezirksordnung op
+    # landesrecht.rlp.de was niet op tekst te verifieren (JS-portaal).
     'Bezirksverband Pfalz': _hkv(
         'bezirksverband-pfalz',
         ['07311', '07312', '07313', '07314', '07316', '07317', '07318', '07320',

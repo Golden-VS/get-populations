@@ -285,13 +285,16 @@ def test_verband_name_already_has_label_and_members_extra():
 
 def test_de_hand_resolves_amt_members_via_verband_members():
     from tam import hand_tables_de as ht
-    mp = {'DE-AGS-01059001': 700, 'DE-AGS-01059002': 3000, 'DE-AGS-01056041': 22000}
+    # 01059999 ligt in Kreis Schleswig-Flensburg maar is zelf geen lid
+    mp = {'DE-AGS-01059001': 700, 'DE-AGS-01059002': 3000, 'DE-AGS-01056041': 22000,
+          'DE-AGS-01059999': 5000}
     vm = {'DE-ARS-010595949': ['DE-AGS-01059001', 'DE-AGS-01059002']}
-    b = load_de_hand(mp, verband_members=vm)
+    b = load_de_hand(mp, verband_members=vm, population_date='2025-12-31')
     eid = ht.DE_IT_ZWECKVERBAENDE['kommunit - IT-Zweckverband Schleswig-Holstein']['id']
     row = b.entities.set_index('entity_id').loc[eid]
-    # Kreis Schleswig-Flensburg (01059) dekt Mittelangeln al; geen dubbeltelling
+    # alleen gemeentelijke leden (Amt Mittelangeln + Quickborn); een Kreis als lid telt niet mee
     assert row['population'] == 25700
+    assert row['population_date'] == '2025-12-31'
     m = b.memberships[b.memberships.entity_id == eid].set_index('member_entity_id')['member_kind']
     assert m['DE-ARS-010595949'] == 'de_gemeindeverband'
     assert m['DE-AGS-01059'] == 'de_landkreis'
@@ -314,3 +317,124 @@ def test_hand_tables_de_rows_have_fixed_id_and_source():
     berlin = sum(r['population'] for r in ht.DE_BEZIRKE.values() if r['stadt'] == 'Berlin')
     hamburg = sum(r['population'] for r in ht.DE_BEZIRKE.values() if r['stadt'] == 'Hamburg')
     assert (berlin, hamburg) == (3700577, 1869473)
+
+
+def test_alias_ids_extra(gv):
+    ai = gv.extras['alias_ids']
+    assert ai['DE-AGS-01051011'] == 'DE-ARS-010515163'
+    assert ai['DE-AGS-01051012'] == 'DE-ARS-010515163'
+    assert ai['DE-AGS-16062003'] == 'DE-AGS-16062004'
+    assert ai['DE-AGS-16062005'] == 'DE-AGS-16062004'
+    assert len(ai) == len(gv.aliases)
+    assert 'DE-AGS-16062004' not in ai and 'DE-AGS-08115001' not in ai
+
+
+SN_ROWS = [
+    _land('14', 'Sachsen'),
+    _kreis('14', '5', '21', '44', 'Erzgebirgskreis'),
+    # kernnaam 'Zschopau' == 'Zschopau, Stadt, Motorradstadt' -> erfuellende Gemeinde
+    _vb('14', '5', '21', '5150', '54', 'Zschopau'),
+    _gem('14', '5', '21', '5150', '090', '63', 'Zschopau, Stadt, Motorradstadt', 9000, '09405'),
+    _gem('14', '5', '21', '5150', '091', '64', 'Gornau/Erzgeb.', 3000, '09405'),
+    # geen eenduidige kernnaam -> Verband-entiteit + WARNING
+    _vb('14', '5', '21', '5101', '54', 'Bärenstein-Königswalde'),
+    _gem('14', '5', '21', '5101', '010', '64', 'Bärenstein', 2000, '09471'),
+    _gem('14', '5', '21', '5101', '011', '64', 'Königswalde', 2100, '09471'),
+]
+
+
+def test_sn_vg_erfuellende_gemeinde_by_core_name(caplog):
+    with caplog.at_level('WARNING'):
+        b = parse_gv(_frame(SN_ROWS), '2026-09-30')
+    eg = _ent(b, 'DE-AGS-14521090')
+    assert eg['kind'] == 'de_gemeinde' and eg['population'] == 12000
+    assert eg['population_method'] == 'sum of members'
+    assert 'DE-ARS-145215150' not in set(b.entities.entity_id)
+    al = b.aliases[b.aliases.entity_id == 'DE-AGS-14521090']
+    assert list(al.alias_name) == ['Gornau/Erzgeb.']
+    assert b.extras['alias_ids']['DE-AGS-14521091'] == 'DE-AGS-14521090'
+    assert 'SN-VG erfuellend op kernnaam 1, als Verband 1' in b.status[0].message
+
+
+def test_sn_vg_without_core_hit_falls_back_to_verband_with_warning(caplog):
+    with caplog.at_level('WARNING'):
+        b = parse_gv(_frame(SN_ROWS), '2026-09-30')
+    vg = _ent(b, 'DE-ARS-145215101')
+    assert vg['kind'] == 'de_gemeindeverband' and vg['population'] == 4100
+    assert vg['name'] == 'Verwaltungsgemeinschaft Bärenstein-Königswalde'
+    assert 'Bärenstein-Königswalde (145215101)' in caplog.text
+    assert b.extras['alias_ids']['DE-AGS-14521010'] == 'DE-ARS-145215101'
+
+
+def test_missing_gemeinde_population_stays_empty(caplog):
+    rows = [
+        _land('01', 'Schleswig-Holstein'),
+        _kreis('01', '0', '51', '44', 'Dithmarschen'),
+        _vb('01', '0', '51', '0011', '50', 'Heide, Stadt'),
+        _gem('01', '0', '51', '0011', '044', '63', 'Heide, Stadt', 1000),
+        _vb('01', '0', '51', '0012', '50', 'Leer'),
+        _gem('01', '0', '51', '0012', '045', '64', 'Leer', None),
+    ]
+    with caplog.at_level('WARNING'):
+        b = parse_gv(_frame(rows), '2026-09-30')
+    g = _ent(b, 'DE-AGS-01051045')
+    assert pd.isna(g['population']) and g['population'] != 0
+    assert g['population_method'] == 'unknown'
+    assert 'DE-AGS-01051045' not in b.extras['municipal_population']
+    assert _ent(b, 'DE-AGS-01051')['population'] == 1000
+    assert 'zonder bevolking' in caplog.text
+
+
+def test_hand_population_date_and_source_name():
+    b = load_de_hand({'DE-AGS-09162000': 1500000}, population_date='2025-12-31')
+    ent = b.entities.set_index('entity_id')
+    assert ent.loc['DE-HAND-bezirk-oberbayern', 'population_date'] == '2025-12-31'
+    mitte = ent.loc['DE-HAND-bezirk-berlin-mitte']
+    assert not mitte['population_source'].startswith('http')
+    assert mitte['source'].startswith('https://')
+
+
+class _FakeCache:
+    def __init__(self, missing=()):
+        self.missing = set(missing)
+
+    def fetch(self, name, url, **kw):
+        if name in self.missing:
+            raise FileNotFoundError(name)
+        return name
+
+
+STICHTAG = {'de_gv_q1': '2026-03-31', 'de_gv_q2': '2026-06-30', 'de_gv_q3': '2026-09-30',
+            'de_gv_q4': '2025-12-31'}
+
+
+def test_quarter_selection_newest_first(monkeypatch):
+    from tam.sources import de
+    monkeypatch.setattr(de, 'gv_stichtag', lambda p: STICHTAG[p])
+    cands = de.gv_candidates(_FakeCache(missing={'de_gv_q2'}))
+    assert [(s, q) for s, q, _ in cands] == [('2026-09-30', 3), ('2026-03-31', 1), ('2025-12-31', 4)]
+
+
+def test_load_de_gv_falls_back_to_next_quarter(monkeypatch):
+    from tam.sources import de
+    monkeypatch.setattr(de, 'gv_stichtag', lambda p: STICHTAG[p])
+    used = []
+
+    def fake_read(path):
+        used.append(path)
+        if path == 'de_gv_q3':
+            raise ValueError('kapot bestand')
+        return _frame(ROWS), '2025-12-31'
+
+    monkeypatch.setattr(de, 'read_gv_xlsx', fake_read)
+    b = de.load_de_gv(_FakeCache())
+    assert used == ['de_gv_q3', 'de_gv_q2']
+    assert b.status[0].ok and b.status[0].source_date == '2026-06-30'
+
+
+def test_load_de_gv_all_quarters_fail(monkeypatch):
+    from tam.sources import de
+    monkeypatch.setattr(de, 'gv_stichtag', lambda p: STICHTAG[p])
+    monkeypatch.setattr(de, 'read_gv_xlsx', lambda p: (_ for _ in ()).throw(ValueError('kapot')))
+    b = de.load_de_gv(_FakeCache())
+    assert not b.status[0].ok and 'kapot' in b.status[0].message

@@ -1,13 +1,16 @@
 """Entiteitsmodel en bevolkingsregels voor de TAM/whitespace-lijstbouwer."""
 from __future__ import annotations
 
+import logging
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 import pandas as pd
 
-from step2_enrich import normalize
 from tam.config import KIND_TO_SEGMENT
+
+log = logging.getLogger(__name__)
 
 ENTITY_COLUMNS = [
     'entity_id', 'name', 'match_name', 'country', 'kind', 'segment', 'detailed_segment',
@@ -76,9 +79,16 @@ def make_entity_id(country: str, scheme: str, code: str) -> str:
     return f'{country}-{scheme.upper()}-{clean}'
 
 
+_TRANSLIT = {'ß': 'ss', 'ø': 'o', 'ł': 'l', 'æ': 'ae', 'œ': 'oe', 'đ': 'd'}
+
+
 def slugify(text: str) -> str:
-    """Kleine letters, ascii, gescheiden met '-'."""
-    return re.sub(r'\s+', '-', normalize(text).strip())
+    """Kleine letters, puur ascii, gescheiden met '-'; lidwoorden blijven staan."""
+    s = unicodedata.normalize('NFKD', str(text))
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    s = ''.join(_TRANSLIT.get(c.lower(), c) for c in s)
+    s = s.encode('ascii', 'ignore').decode().lower()
+    return re.sub(r'[^a-z0-9]+', '-', s).strip('-')
 
 
 def new_entity(**fields) -> dict:
@@ -137,4 +147,7 @@ def apply_country_totals(entities, municipal_population):
         country = out.at[idx, 'country']
         if country in totals:
             out.at[idx, 'population'] = totals[country]
+        else:
+            log.warning("Geen gemeentebevolking voor land %s; 'country total' blijft leeg voor %s",
+                        country, out.at[idx, 'entity_id'])
     return out

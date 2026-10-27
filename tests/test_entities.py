@@ -25,6 +25,10 @@ def test_entity_id_is_deterministic():
 
 def test_slugify():
     assert slugify('Gemeente Zwölfaxing & Co') == 'gemeente-zwolfaxing-co'
+    assert slugify('De Bilt') == 'de-bilt' != slugify('Bilt')
+    assert slugify('Großenhain') == 'grossenhain'
+    assert slugify('Bezirk  Mitte') == slugify('bezirk mitte')
+    assert slugify('Łódź Øre') == 'lodz-ore'
 
 
 def test_new_entity_defaults():
@@ -94,3 +98,12 @@ def test_country_total():
     ])
     out, = [apply_country_totals(ents, {'NL-GM-1': 100, 'NL-GM-2': 200, 'BE-NIS-1': 999})]
     assert out.loc[out.entity_id == 'NL-MIN-1', 'population'].iloc[0] == 300
+
+
+def test_country_total_without_municipalities_warns(caplog):
+    ents = _ents([{'entity_id': 'BE-FOD-1', 'name': 'f', 'country': 'BE', 'kind': 'be_fod',
+                   'population_method': 'country total'}])
+    with caplog.at_level('WARNING'):
+        out = apply_country_totals(ents, {'NL-GM-1': 5})
+    assert pd.isna(out.loc[0, 'population'])
+    assert 'BE-FOD-1' in caplog.text

@@ -107,11 +107,20 @@ def read_template(path: Path) -> tuple[list[TamDefinition], pd.DataFrame]:
     errors: list[str] = []
     defs: list[TamDefinition] = []
     df = pd.read_excel(path, sheet_name='tam_definitions', dtype=object)
+    seen: dict[tuple, int] = {}   # (company, core_product, country) -> eerste Excel-rij
     for idx, row in df.iterrows():
         xl = idx + 2
         segments = _split(row.get('segments'))
         if not segments:
             continue
+        key = tuple('' if _blank(row.get(c)) else str(row.get(c)).strip()
+                    for c in ('company', 'core_product', 'country'))
+        if key in seen:
+            # M4: dubbele definitie zou TAM-rijen dubbel tellen
+            errors.append(f"tam_definitions rij {xl}: dubbele definitie voor {' / '.join(key)} "
+                          f"(ook in rij {seen[key]})")
+        else:
+            seen[key] = xl
         excluded = _split(row.get('excluded_kinds'))
 
         def bad(value, column):

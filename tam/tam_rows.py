@@ -1,8 +1,10 @@
 """TAM-rijen per definitie: welke entiteiten horen bij welk product en land."""
 import pandas as pd
 
+# notes (uit het sjabloon) als laatste kolom, zodat de vaste kolommen hun plaats houden
 TAM_ROW_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'entity_id', 'name',
-                   'detailed_segment', 'population', 'in_tam', 'in_tam_reason', 'matched_accounts']
+                   'detailed_segment', 'population', 'in_tam', 'in_tam_reason', 'matched_accounts',
+                   'notes']
 
 
 def _nl(n) -> str:
@@ -42,6 +44,7 @@ def build_tam_rows(entities: pd.DataFrame, definitions: list,
                 'population': None if pop is None or pd.isna(pop) or pop == '' else pop,
                 'in_tam': status, 'in_tam_reason': reason,
                 'matched_accounts': match_counts.get(e['entity_id'], 0),
+                'notes': d.notes,
             })
     df = pd.DataFrame(rows, columns=TAM_ROW_COLUMNS)
     return (df.sort_values(['company', 'sales_unit', 'core_product', 'country', 'name'],

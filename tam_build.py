@@ -47,6 +47,9 @@ DEFAULT_PRODUCTS = 'doc/Product_Categories_Business_Units_Core_Products_CRM2.xls
 CLASSIFY_CACHE = REFERENCE_DIR / 'classify_cache.csv'
 MATCH_CACHE = REFERENCE_DIR / 'match_cache.csv'
 REASON_OVERRIDE_NONE = 'override: geen match'
+# Open punten die elke runlog noemt (spec 4.2)
+OPEN_POINTS = ['OP-dump (BE, Agentschap Binnenland): licentie niet vermeld in de '
+               'dataset-metadata; hergebruik nog te bevestigen']
 MAX_IDS_IN_LOG = 200
 EXIT_USAGE = 2
 
@@ -353,7 +356,9 @@ def run_build(args) -> int:
     run_log = build_run_log(
         inputs={
             'datum': date.today().isoformat(), 'model': MODEL, 'sjabloon': args.template,
-            'crm': args.crm, 'producten': args.products, 'configuratie': args.config,
+            'crm': args.crm,
+            'crm gewijzigd': date.fromtimestamp(Path(args.crm).stat().st_mtime).isoformat(),
+            'producten': args.products, 'configuratie': args.config,
             'uitvoer': args.output, 'plafond (USD)': f'{args.max_cost:.2f}',
             'opties': ' '.join(o for o, on in [('--refresh-cache', args.refresh_cache),
                                                ('--offline', args.offline),
@@ -370,6 +375,7 @@ def run_build(args) -> int:
         strays=strays,
         # alleen bepalen; bewaren pas na geslaagd wegschrijven
         new_detailed=check_known_detailed(detailed, save=False),
+        open_points=OPEN_POINTS,
         warnings=warnings,
     )
     write_output(Path(args.output), tam=tam, matches=matches, entities=entities,

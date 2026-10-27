@@ -373,3 +373,18 @@ def test_coop_descriptions_passed_to_classification(tmp_path, env, monkeypatch):
     tpl = _template(tmp_path)
     assert tam_build.main(_run_args(tmp_path, tpl, '--no-ai')) == 0
     assert seen and all(d == {'NL-OO-1': 'Sociale werkvoorziening.'} for d in seen)
+
+
+def test_run_log_open_point_and_crm_date(tmp_path, env):
+    # M6: open punt OP-licentie en de wijzigingsdatum van het CRM-bestand in de runlog
+    import time
+    tpl = _template(tmp_path)
+    args = _run_args(tmp_path, tpl, '--no-ai')
+    crm_path = tmp_path / 'crm.csv'
+    stamp = time.mktime((2026, 10, 20, 12, 0, 0, 0, 0, -1))
+    os.utime(crm_path, (stamp, stamp))
+    assert tam_build.main(args) == 0
+    log = pd.read_excel(tmp_path / 'out.xlsx', sheet_name='Run log', dtype=str).fillna('')
+    pairs = dict(zip(log['onderwerp'], log['waarde']))
+    assert pairs['crm gewijzigd'] == '2026-10-20'
+    assert any('licentie' in v for k, v in pairs.items() if k == 'open punt')

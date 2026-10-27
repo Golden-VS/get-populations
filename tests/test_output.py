@@ -99,3 +99,9 @@ def test_missing_cooperation_warns(tmp_path, caplog):
                                     columns=MEMBERSHIP_COLUMNS)
     write_output(tmp_path / 'o.xlsx', **f)
     assert 'NL-X' in caplog.text
+
+
+def test_open_points_section():
+    log = build_run_log(open_points=['OP-dump: licentie niet vermeld'])
+    assert ('== Open punten ==', '') in log
+    assert ('open punt', 'OP-dump: licentie niet vermeld') in log

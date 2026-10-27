@@ -82,7 +82,7 @@ def build_run_log(**facts) -> list:
     (company, sales_unit, core_product, country, in_tam, count); population_unknown: dict
     {label: count}; ai_stats: dict; source_status: list[SourceStatus]; strays: list of
     {company, core_product, sales_unit, rows}; new_detailed: set; match_stats: dict
-    {label: count}; warnings: list[str]."""
+    {label: count}; open_points: list[str]; warnings: list[str]."""
     log = []
 
     def section(title, rows):
@@ -121,6 +121,8 @@ def build_run_log(**facts) -> list:
                  for s in facts['strays']])
     if facts.get('new_detailed'):
         section('Nieuwe detailed-waarden', [('nieuw', ', '.join(sorted(facts['new_detailed'])))])
+    if facts.get('open_points'):
+        section('Open punten', [('open punt', p) for p in facts['open_points']])
     if facts.get('warnings'):
         section('Waarschuwingen', [('waarschuwing', w) for w in facts['warnings']])
     return log

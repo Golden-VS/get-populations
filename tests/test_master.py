@@ -323,3 +323,21 @@ def test_coop_descriptions_extras_merged():
     b = _bundle('b', [_gem('NL-GM-GM0002', 'Bee', 1)], extras={'coop_descriptions': {'Y': 'doel y'}})
     result = build_master(None, loaders=[('a', _fixed(a)), ('b', _fixed(b))])
     assert result.extras['coop_descriptions'] == {'X': 'doel x', 'Y': 'doel y'}
+
+
+def test_loader_warnings_reach_run_log_warnings():
+    # M6: WARNING-regels van bronladers (bv. SN-VG-fallback, politiezonedekking) in extras['warnings']
+    def loader(ctx):
+        logging.getLogger('tam.sources.de').warning('GV: %d Verwaltungsgemeinschaften fallback', 3)
+        logging.getLogger('tam.sources.be').warning('OP: 4 Vlaamse gemeenten zonder politiezone')
+        logging.getLogger('tam.sources.be').info('alleen info')
+        return _bundle('a', [_gem('NL-GM-GM0001', 'Aa', 100)])
+
+    result = build_master(None, loaders=[('a', loader), ('b', _raise)])
+    warnings = result.extras['warnings']
+    assert 'GV: 3 Verwaltungsgemeinschaften fallback' in warnings
+    assert 'OP: 4 Vlaamse gemeenten zonder politiezone' in warnings
+    assert not any('alleen info' in w for w in warnings)
+    # master-eigen foutregels (bron b mislukt) niet dubbel: die staan al in 'Bronnen met fouten'
+    assert not any(w.startswith('Bron b mislukt') for w in warnings)
+    assert len(warnings) == len(set(warnings))

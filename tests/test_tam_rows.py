@@ -55,3 +55,11 @@ def test_only_selected_segments_and_country():
              dict(entity_id='BE-NIS-1', name='B', country='BE', kind='be_gemeente', population=20000))
     df = build_tam_rows(e, [definition()], {})
     assert list(df['entity_id']) == ['NL-CBS-1']
+
+
+def test_notes_copied_to_last_column():
+    # M5: notes uit het sjabloon staan als laatste kolom in de TAM-rijen
+    e = ents(dict(entity_id='NL-CBS-1', name='A', country='NL', kind='nl_gemeente', population=20000))
+    df = build_tam_rows(e, [definition(notes='alleen grote gemeenten')], {})
+    assert TAM_ROW_COLUMNS[-1] == 'notes'
+    assert df.iloc[0]['notes'] == 'alleen grote gemeenten'

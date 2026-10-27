@@ -127,3 +127,23 @@ def test_bad_override_entity_id(tmp_path):
         read_template(path)
     assert 'match_overrides rij 2' in str(e.value)
     assert 'rij 3' not in str(e.value)
+
+
+def test_duplicate_definition_rows_rejected(tmp_path):
+    # M4: twee ingevulde rijen voor dezelfde (company, core_product, country) = fout
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    make_template(df, path)
+    from openpyxl import load_workbook
+    wb = load_workbook(path)
+    wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'NL', 'Regional government',
+                                  None, None, None])
+    wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'BE', None, None, None, None])
+    wb.save(path)
+    _fill(path, {2: {'segments': 'Local government'}, 3: {'segments': 'Local government'}})
+    with pytest.raises(TemplateError) as e:
+        read_template(path)
+    msg = str(e.value)
+    assert 'rij 8' in msg and 'rij 2' in msg and 'Product X' in msg
+    # de lege dubbele rij (BE, zonder segments) telt niet
+    assert 'rij 9' not in msg

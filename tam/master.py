@@ -148,7 +148,43 @@ def _with_note(message: str, note: str) -> str:
     return f'{message}; {note}' if message else note
 
 
+# Lengte waarop een verzamelde laderwaarschuwing in de runlog wordt afgekapt
+_WARNING_MAX_CHARS = 1000
+
+
+class _WarningCollector(logging.Handler):
+    """Verzamelt WARNING+ van de tam-loggers tijdens de laders (M6), behalve de eigen
+    master-regels (die staan al in de bronstatus en 'Bronnen met fouten')."""
+
+    def __init__(self):
+        super().__init__(logging.WARNING)
+        self.messages: list[str] = []
+
+    def emit(self, record):
+        if record.name == __name__:
+            return
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001
+            return
+        if len(message) > _WARNING_MAX_CHARS:
+            message = message[:_WARNING_MAX_CHARS] + ' (...)'
+        self.messages.append(message)
+
+
 def _run_loaders(cache, loaders) -> LoadContext:
+    collector = _WarningCollector()
+    tam_logger = logging.getLogger('tam')
+    tam_logger.addHandler(collector)
+    try:
+        ctx = _run_loader_list(cache, loaders)
+    finally:
+        tam_logger.removeHandler(collector)
+    ctx.warnings = list(dict.fromkeys(ctx.warnings + collector.messages))
+    return ctx
+
+
+def _run_loader_list(cache, loaders) -> LoadContext:
     ctx = LoadContext(cache)
     for spec in loaders:
         name, fn = spec[0], spec[1]

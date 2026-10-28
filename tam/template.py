@@ -50,18 +50,81 @@ def load_products(path: Path, config: dict) -> tuple[pd.DataFrame, list[dict]]:
     return df, strays
 
 
+# Naslag voor het blad 'lists': per detailed segment de landen en wat eronder valt.
+DETAILED_HELP = {
+    'Municipality': ('NL, BE, DE', 'Gemeente / commune / Gemeinde (in DE: verbandsfrei, '
+                     'erfuellende Gemeinde of BW-lid van een GVV)'),
+    'County-level city': ('DE', 'Kreisfreie Stadt / Stadtkreis (gemeente met Kreis-taken)'),
+    'City district': ('NL, BE, DE', 'Stadsdeel Amsterdam, district Antwerpen, Bezirk Berlijn/Hamburg'),
+    'Island authority': ('BQ', 'Openbaar lichaam Bonaire, Sint Eustatius, Saba'),
+    'Municipal autonomous agency': ('BE', 'Autonoom gemeentebedrijf (AGB)'),
+    'District administration': ('SR', 'Districtscommissariaat (10 districten Suriname)'),
+    'State': ('DE', 'Bundesland, incl. stadstaten Berlijn, Hamburg, Bremen'),
+    'Region / Community': ('BE', 'Gewest of Gemeenschap'),
+    'Province': ('NL, BE', 'Provincie'),
+    'Administrative district': ('DE', 'Regierungsbezirk (Bezirksregierung)'),
+    'County': ('DE', 'Landkreis / Kreis'),
+    'Higher municipal association': ('DE', 'Bezirk (Beieren), Landschaftsverband (NRW), LWV Hessen e.d.'),
+    'Water authority': ('NL', 'Waterschap / hoogheemraadschap'),
+    'Ministry': ('NL, DE, AW, CW, SX, SR', 'Ministerie / Bundesministerium'),
+    'National agency': ('NL, BQ, SR', 'Rijksorganisatie (agentschap, ZBO, inspectie), Rijksdienst '
+                        'Caribisch Nederland, regering Suriname'),
+    'Federal public service': ('BE', 'FOD / POD'),
+    'Country government (Caribbean)': ('AW, CW, SX', 'Regering van Aruba, Curacao, Sint Maarten'),
+    'Safety region': ('NL', 'Veiligheidsregio'),
+    'Police zone': ('BE', 'Politiezone / zone de police'),
+    'Emergency services zone': ('BE', 'Hulpverleningszone / zone de secours'),
+    'Municipal federation': ('DE', 'Amt, Samtgemeinde, Verbandsgemeinde, Verwaltungsgemeinschaft, '
+                             'Gemeindeverwaltungsverband'),
+    'Shared service organization': ('NL, BE', 'Ambtelijke werkorganisatie / shared service center '
+                                    '(bv. Samenwerking Kempengemeenten)'),
+    'IT cooperation': ('NL, BE, DE', 'ICT-samenwerking, kommunaler IT-Zweckverband'),
+    'Tax cooperation': ('NL, BE', 'Belastingsamenwerking (heffing en invordering, WOZ)'),
+    'Environmental agency': ('NL, BE', 'Omgevingsdienst'),
+    'Public health service (GGD)': ('NL', 'GGD'),
+    'Social employment & work': ('NL, BE', 'Werkbedrijf, sociale werkvoorziening, participatiebedrijf'),
+    'Waste management': ('NL, BE', 'Afvalsamenwerking / afvalintercommunale'),
+    'Recreation authority': ('NL, BE', 'Recreatieschap'),
+    'Procurement cooperation': ('NL, BE', 'Inkoopsamenwerking'),
+    'Transport authority': ('NL, BE', 'Vervoerregio, OV- of mobiliteitssamenwerking'),
+    'Regional cooperation': ('NL, BE', 'Regionale samenwerking van gemeenten (bv. regio, '
+                             'streekverband)'),
+    'Welfare association': ('BE', 'Welzijnsvereniging (Vlaanderen)'),
+    'Special-purpose association': ('DE', 'Zweckverband (water, afval, scholen e.d.)'),
+    'Other joint arrangement': ('NL, BE', 'Overige samenwerking (archief, bedrijventerrein, '
+                                'haven, jeugd e.d.)'),
+}
+# Een lichte vulkleur per segment, zodat de groepen in het blad meteen opvallen.
+_SEGMENT_FILLS = ['DDEBF7', 'E2EFDA', 'FFF2CC', 'FCE4D6', 'EDE7F6']
+
+
 def _lists_sheet(wb: Workbook) -> None:
-    """(Her)bouw het hulpblad 'lists'; bij --update vervangen zodat nieuwe waarden (bv.
-    'District administration') erin staan. Het blad is alleen naslag, niet ingevuld."""
+    """(Her)bouw het hulpblad 'lists': een rij per detailed segment met het segment
+    ernaast, de landen en wat eronder valt. Bij --update vervangen zodat nieuwe waarden
+    erin staan. Het blad is alleen naslag, niet ingevuld."""
+    from openpyxl.styles import Font, PatternFill
+
     if 'lists' in wb.sheetnames:
         del wb['lists']
     ws = wb.create_sheet('lists')
-    ws.append(['segments', 'detailed_segments'])
-    detailed = [d for values in DETAILED_SEGMENTS.values() for d in values]
-    for i in range(max(len(SEGMENTS), len(detailed))):
-        ws.append([SEGMENTS[i] if i < len(SEGMENTS) else None,
-                   detailed[i] if i < len(detailed) else None])
+    ws.append(['segment', 'detailed_segment', 'landen', 'wat valt eronder'])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for i, segment in enumerate(SEGMENTS):
+        fill = PatternFill('solid', fgColor=_SEGMENT_FILLS[i % len(_SEGMENT_FILLS)])
+        for detailed in DETAILED_SEGMENTS[segment]:
+            landen, uitleg = DETAILED_HELP.get(detailed, ('', ''))
+            ws.append([segment, detailed, landen, uitleg])
+            for cell in ws[ws.max_row]:
+                cell.fill = fill
+    last = ws.max_row
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = f'A1:D{last}'
+    for col, width in zip('ABCD', (28, 32, 22, 80)):
+        ws.column_dimensions[col].width = width
     ws.append([])
+    ws.append(['segments: alleen de segmentnamen uit kolom A. excluded_kinds: waarden uit kolom B '
+               'die binnen die segmenten vallen.'])
     ws.append(['Meerdere waarden in een cel: scheiden met ; (puntkomma).'])
 
 

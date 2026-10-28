@@ -462,7 +462,7 @@ filled in. The business fills in:
 | Column | Rule |
 |---|---|
 | `segments` | One or more top-level segments for this product and country, separated by `;`: `Local government`, `Regional government`, `National government`, `Inter-municipal cooperation`, `Public safety & emergency` (for example `Local government;Inter-municipal cooperation`). Allowed values are in the first column of sheet `lists`. **Rows with empty `segments` are skipped.** |
-| `excluded_kinds` | Optional. Detailed segments (second column of sheet `lists`) to leave out again, separated by `;` (for example `City district;Municipal autonomous agency`). This narrows the top-level segments when a product fits a whole group except a few kinds. |
+| `excluded_kinds` | Optional. Detailed segments (column `detailed_segment` of sheet `lists`, which shows on each row the segment it belongs to, the countries where it occurs and what falls under it; filter column `segment` to see the options for your segments) to leave out again, separated by `;` (for example `City district;Municipal autonomous agency`). This narrows the top-level segments when a product fits a whole group except a few kinds. |
 | `min_population` | Optional whole number. Entities below it are marked `no - below cutoff`. Empty means no cut-off. |
 | `notes` | Free text, copied to the output (last column of sheet `TAM`). |
 

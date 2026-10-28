@@ -149,3 +149,25 @@ def test_duplicate_definition_rows_rejected(tmp_path):
     assert f'rij {dup_row}:' in msg and 'rij 2)' in msg and 'Product X' in msg
     # de lege dubbele rij (BE, zonder segments) telt niet
     assert f'rij {dup_row + 1}' not in msg
+
+
+def test_lists_sheet_shows_detailed_per_segment(tmp_path):
+    from openpyxl import load_workbook
+    from tam.config import DETAILED_SEGMENTS, SEGMENTS
+    p = tmp_path / 't.xlsx'
+    products = pd.DataFrame([('Company A', 'Unit 1', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p)
+    ws = load_workbook(p)['lists']
+    assert [c.value for c in ws[1]][:4] == ['segment', 'detailed_segment', 'landen', 'wat valt eronder']
+    rows = [r for r in ws.iter_rows(min_row=2, values_only=True) if r[0] and r[1]]
+    expected = [(s, d) for s in SEGMENTS for d in DETAILED_SEGMENTS[s]]
+    assert [(r[0], r[1]) for r in rows] == expected
+    assert all(r[2] and r[3] for r in rows)
+    assert ws.freeze_panes == 'A2' and ws.auto_filter.ref
+
+
+def test_every_detailed_value_has_help():
+    from tam.config import all_detailed
+    from tam.template import DETAILED_HELP
+    assert set(DETAILED_HELP) == all_detailed()

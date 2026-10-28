@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from tam.config import COUNTRIES
 from tam.template import (TamDefinition, TemplateError, load_products,
                           make_template, read_template)
 
@@ -48,7 +49,7 @@ def test_stray_assigned_to_main_sales_unit(tmp_path):
 def test_make_refuses_overwrite(tmp_path):
     df, _ = _products(tmp_path)
     path = tmp_path / 'tpl.xlsx'
-    assert make_template(df, path) == 6
+    assert make_template(df, path) == 2 * len(COUNTRIES)
     with pytest.raises(FileExistsError):
         make_template(df, path)
 
@@ -78,7 +79,7 @@ def test_update_keeps_filled_rows_overrides_and_adds_new(tmp_path):
     new_rows = [('Company A', 'Unit 1', 'Product X'), ('Company B', 'Unit 3', 'Product Y'),
                 ('Company B', 'Unit 4', 'Product W')]
     df2, _ = load_products(_products_xlsx(tmp_path, new_rows), CONFIG)
-    assert make_template(df2, path, update=True) == 3
+    assert make_template(df2, path, update=True) == len(COUNTRIES)
 
     defs, overrides = read_template(path)
     assert len(defs) == 1
@@ -86,7 +87,7 @@ def test_update_keeps_filled_rows_overrides_and_adds_new(tmp_path):
     assert d == TamDefinition('Company A', 'Unit 1', 'Product X', 'NL',
                               ['Local government', 'Regional government'], [], 10000, 'hi')
     assert list(overrides['accountid']) == ['123']
-    assert len(pd.read_excel(path, sheet_name='tam_definitions')) == 9
+    assert len(pd.read_excel(path, sheet_name='tam_definitions')) == 3 * len(COUNTRIES)
 
 
 def test_unknown_segment_value_stops_with_row_number(tmp_path):
@@ -144,6 +145,7 @@ def test_duplicate_definition_rows_rejected(tmp_path):
     with pytest.raises(TemplateError) as e:
         read_template(path)
     msg = str(e.value)
-    assert 'rij 8' in msg and 'rij 2' in msg and 'Product X' in msg
+    dup_row = 2 + 2 * len(COUNTRIES)   # eerste toegevoegde rij na de kop en alle productrijen
+    assert f'rij {dup_row}:' in msg and 'rij 2)' in msg and 'Product X' in msg
     # de lege dubbele rij (BE, zonder segments) telt niet
-    assert 'rij 9' not in msg
+    assert f'rij {dup_row + 1}' not in msg

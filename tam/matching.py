@@ -20,13 +20,16 @@ from rapidfuzz import fuzz, process
 from step2_enrich import _plz_prefix_score, normalize
 from tam.ai import (AIBatchError, AIRefusal, CostCapReached, atomic_write_csv, call_parsed,
                     estimate_cost)
-from tam.config import CRM_COUNTRY_TO_TAM, REFERENCE_DIR
+from tam.config import ADDRESS_COUNTRY_TO_TAM, CRM_COUNTRY_TO_TAM, REFERENCE_DIR
 
 log = logging.getLogger(__name__)
 
 MATCH_COLUMNS = ['entity_id', 'accountid', 'crm_name', 'match_pass', 'match_reason', 'confidence']
 UNMATCHED_COLUMNS = ['accountid', 'crm_name', 'tam_country', 'best_candidate', 'best_score', 'reason']
 
+# Nationale kinds van AW/CW/SX/BQ/SR (spec sectie 15); stap 1 geeft Caribische overheidsaccounts
+# het type 'land' of (naam 'Ministerie ...') 'ministerie'
+_NATIONAL_CARIB_SR = ('carib_land', 'carib_ministerie', 'bq_rijksdienst', 'sr_regering', 'sr_ministerie')
 # detected_type (stap 1) -> verenigbare entity-kinds; ontbrekend type = lege set
 TYPE_TO_KINDS: dict[str, set[str]] = {
     'gemeente_nl': {'nl_gemeente'},
@@ -41,9 +44,9 @@ TYPE_TO_KINDS: dict[str, set[str]] = {
     'belastingsamenwerking': {'nl_samenwerking'},
     'ggd': {'nl_samenwerking'},
     'stadsregio': {'nl_samenwerking'},
-    'ministerie': {'nl_ministerie', 'nl_rijksorganisatie'},
-    'rijksoverheid': {'nl_ministerie', 'nl_rijksorganisatie'},
-    'land': {'nl_land_caribisch', 'nl_openbaar_lichaam'},
+    'ministerie': {'nl_ministerie', 'nl_rijksorganisatie', *_NATIONAL_CARIB_SR},
+    'rijksoverheid': {'nl_ministerie', 'nl_rijksorganisatie', *_NATIONAL_CARIB_SR},
+    'land': {'bq_openbaar_lichaam', *_NATIONAL_CARIB_SR},
     'gemeente_be': {'be_gemeente'},
     'ocmw': {'be_gemeente'},
     'agb': {'be_agb'},
@@ -123,11 +126,18 @@ def _priority(row) -> str:
 def crm_in_scope(crm: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(in_scope, out_of_scope_gov).
 
-    in_scope: NL/BE/DE/Caribisch, zonder zeker-commerciele accounts; extra kolommen
-    `tam_country` en `priority` (gov/other).
-    out_of_scope_gov: buitenlandse (OTHER) Governmental-accounts in het unmatched-schema.
+    in_scope: NL/BE/DE/AW/CW/SX/BQ/SR, zonder zeker-commerciele accounts; extra kolommen
+    `tam_country` en `priority` (gov/other). Stap 1 kent geen Suriname: een OTHER/UNKNOWN-account
+    met adresland Suriname (cx_address1_country of cx_address3_country) telt als SR.
+    out_of_scope_gov: overige buitenlandse (OTHER) Governmental-accounts in het unmatched-schema.
     """
     country = crm['detected_country'].map(lambda v: _text(v).upper())
+    by_address = _address_country(crm)
+    from_address = country.isin(['OTHER', 'UNKNOWN', '']) & (by_address != '')
+    country = country.where(~from_address, by_address)
+    if from_address.any():
+        log.info('CRM-scope: %d accounts via het adresland in scope gezet (%s)', int(from_address.sum()),
+                 ', '.join(f'{k}: {v}' for k, v in sorted(by_address[from_address].value_counts().items())))
     category = crm['Segment (category)'].map(_text)
     commercial = (
         (crm['detected_type'].map(_text) == 'commercieel_of_overig')
@@ -154,6 +164,18 @@ def crm_in_scope(crm: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     log.info('CRM-scope: %d accounts in scope, %d buitenlandse overheidsaccounts buiten scope',
              len(scope), len(out_gov))
     return scope, out_gov
+
+
+def _address_country(crm: pd.DataFrame) -> pd.Series:
+    """TAM-land uit het adresland (ADDRESS_COUNTRY_TO_TAM), anders ''. cx_address1_country gaat
+    voor cx_address3_country; ontbrekende kolommen tellen als leeg."""
+    out = pd.Series('', index=crm.index, dtype=object)
+    for column in ('cx_address3_country', 'cx_address1_country'):
+        if column not in crm.columns:
+            continue
+        mapped = crm[column].map(lambda v: ADDRESS_COUNTRY_TO_TAM.get(_text(v).lower(), ''))
+        out = mapped.where(mapped != '', out)
+    return out
 
 
 # ---------- normalisatie ----------
@@ -495,8 +517,9 @@ EST_OUT_TOKENS_PER_BATCH = 3000
 ERROR_LOG_CHARS = 200
 
 MATCH_SYSTEM_PROMPT = """Je bent een analist overheidsdata. Je koppelt CRM-accounts (klantrecords
-uit een CRM-systeem) aan officiele overheidsorganisaties in Nederland, Belgie en Duitsland.
-Namen kunnen Nederlands, Frans, Duits of Engels zijn.
+uit een CRM-systeem) aan officiele overheidsorganisaties in Nederland, Belgie, Duitsland, Aruba,
+Curacao, Sint Maarten, Caribisch Nederland (Bonaire, Sint Eustatius, Saba) en Suriname.
+Namen kunnen Nederlands, Frans, Duits, Engels of Papiaments zijn.
 
 Elk account heeft een volgnummer, de CRM-naam, het door een eerdere stap herkende type,
 adres/postcode/plaats en land, plus een lijst kandidaten in de vorm

@@ -1,10 +1,8 @@
-import pandas as pd
-
 from tam import hand_tables as ht
 from tam.config import KIND_TO_SEGMENT
 from tam.sources.nl import load_nl_hand
 
-TABLES = ['NL_OPENBARE_LICHAMEN', 'NL_LANDEN_CARIBISCH', 'NL_STADSDEEL_IDS', 'BE_GEWESTEN', 'BE_FOD',
+TABLES = ['NL_STADSDEEL_IDS', 'BE_GEWESTEN', 'BE_FOD',
           'BE_HULPVERLENINGSZONES_WB', 'BE_INTERCOMMUNALES_BXL']
 
 
@@ -39,13 +37,9 @@ def test_fire_zones_wb_count_and_members():
 def test_load_nl_hand():
     b = load_nl_hand()
     counts = b.entities['kind'].value_counts().to_dict()
-    assert counts == {'nl_stadsdeel': 8, 'nl_openbaar_lichaam': 3, 'nl_land_caribisch': 3}
+    assert counts == {'nl_stadsdeel': 8}
     assert b.entities['entity_id'].is_unique
     assert set(b.entities['kind']) <= set(KIND_TO_SEGMENT)
-    bon = b.entities[b.entities.entity_id == 'NL-HAND-BONAIRE'].iloc[0]
-    assert bon['population'] == 27611 and bon['population_method'] == 'own'
-    aw = b.entities[b.entities.entity_id == 'NL-HAND-ARUBA'].iloc[0]
-    assert pd.isna(aw['population']) and aw['population_method'] == 'unknown'
     alias_names = set(b.aliases.alias_name)
     assert 'Stadsdeel Centrum' in alias_names
     assert not alias_names & {'Centrum', 'Noord', 'Oost', 'Zuid', 'West', 'Zuidoost', 'Nieuw-West', 'Weesp'}

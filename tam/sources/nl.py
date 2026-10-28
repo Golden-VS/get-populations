@@ -458,7 +458,7 @@ def load_nl_oo(cache: SourceCache) -> SourceBundle:
 
 
 # ---------------------------------------------------------------------------
-# NL-handrijen: Amsterdamse stadsdelen, openbare lichamen BES, Caribische landen
+# NL-handrijen: Amsterdamse stadsdelen (Caribisch deel: tam/sources/carib.py)
 # ---------------------------------------------------------------------------
 def _hand_entity(eid, name, kind, row, region=''):
     pop = row.get('population')
@@ -472,8 +472,8 @@ def _hand_entity(eid, name, kind, row, region=''):
 
 
 def load_nl_hand() -> SourceBundle:
-    """Stadsdelen (step2_enrich.NL_STADSDEEL_INWONERS, ontdubbeld per bron_url), openbare
-    lichamen Bonaire/Sint Eustatius/Saba en de landen Aruba/Curacao/Sint Maarten."""
+    """Stadsdelen (step2_enrich.NL_STADSDEEL_INWONERS, ontdubbeld per bron_url). De openbare
+    lichamen en de Caribische landen staan sinds spec sectie 15 in tam/sources/carib.py."""
     rows, aliases = [], []
 
     # Stadsdelen: de step2-tabel heeft per stadsdeel twee sleutels met dezelfde bron_url
@@ -491,17 +491,6 @@ def load_nl_hand() -> SourceBundle:
         for alias in fixed.get('aliases', []):
             aliases.append({'alias_name': alias, 'country': 'NL', 'entity_id': fixed['id'],
                             'reason': 'andere naam (handtabel)'})
-
-    for table, kind in ((hand_tables.NL_OPENBARE_LICHAMEN, 'nl_openbaar_lichaam'),
-                        (hand_tables.NL_LANDEN_CARIBISCH, 'nl_land_caribisch')):
-        for name, row in table.items():
-            rows.append(_hand_entity(row['id'], name, kind, row))
-            if row.get('population') is None:
-                log.warning('%s: geen officieel bevolkingscijfer in de handtabel (bron: %s)',
-                            name, row['bron_url'])
-            for alias in row.get('aliases', []):
-                aliases.append({'alias_name': alias, 'country': 'NL', 'entity_id': row['id'],
-                                'reason': 'andere naam (handtabel)'})
 
     bundle = SourceBundle.empty()
     bundle.entities = pd.DataFrame(rows, columns=bundle.entities.columns)

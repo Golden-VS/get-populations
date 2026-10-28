@@ -12,7 +12,7 @@ DEF_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'segments',
                'excluded_kinds', 'min_population', 'notes']
 OVERRIDE_COLUMNS = ['accountid', 'entity_id', 'reason']
 ALWAYS_IGNORED = ['_Other', 'Undefined']
-ENTITY_ID_RE = re.compile(r'^(NL|BE|DE)-[A-Z]+-.+$')
+ENTITY_ID_RE = re.compile(r'^(' + '|'.join(COUNTRIES) + r')-[A-Z]+-.+$')
 
 
 class TemplateError(ValueError):
@@ -51,6 +51,10 @@ def load_products(path: Path, config: dict) -> tuple[pd.DataFrame, list[dict]]:
 
 
 def _lists_sheet(wb: Workbook) -> None:
+    """(Her)bouw het hulpblad 'lists'; bij --update vervangen zodat nieuwe waarden (bv.
+    'District administration') erin staan. Het blad is alleen naslag, niet ingevuld."""
+    if 'lists' in wb.sheetnames:
+        del wb['lists']
     ws = wb.create_sheet('lists')
     ws.append(['segments', 'detailed_segments'])
     detailed = [d for values in DETAILED_SEGMENTS.values() for d in values]
@@ -91,6 +95,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
         if (row[0], row[2], row[3]) not in existing:
             ws.append(row)
             added += 1
+    _lists_sheet(wb)
     wb.save(path)
     return added
 

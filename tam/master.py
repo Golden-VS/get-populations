@@ -28,6 +28,10 @@ log = logging.getLogger(__name__)
 
 # Gemeente-kinds waarvan de eigen bevolking in municipal_population hoort (DE komt uit parse_gv)
 _MUNICIPAL_KINDS = ('nl_gemeente', 'be_gemeente')
+# Basis voor het landtotaal van AW/CW/SX (de landrij), BQ (som van de eilanden) en SR (som van
+# de districten), spec sectie 15. Ze gaan ook in municipal_population: apply_country_totals telt
+# per landprefix van de entity_id, en deze ids beginnen met hun land (AW-HAND-..., SR-HAND-...).
+_COUNTRY_TOTAL_KINDS = ('carib_land', 'bq_openbaar_lichaam', 'sr_district')
 _SAMPLE = 20
 
 
@@ -98,6 +102,11 @@ def _de_hand(ctx):
                         population_date=extras.get('de_population_date', ''))
 
 
+def _carib_sr(ctx):
+    from tam.sources.carib import load_carib_sr
+    return load_carib_sr()
+
+
 def _aliases(ctx):
     from tam.sources.aliases import load_predecessors
     gv = ctx.bundles.get('de_gv')
@@ -121,6 +130,7 @@ def default_loaders() -> list[tuple]:
         ('de_gv', _de_gv),
         ('de_feu', _de_feu),
         ('de_hand', _de_hand, ('de_gv',)),
+        ('carib_sr', _carib_sr),
         ('aliases', _aliases),
     ]
 
@@ -323,9 +333,10 @@ def _check_aliases(aliases, entity_ids, warnings):
 
 
 def _municipal_population(entities, extras_pop) -> dict:
-    """extras uit alle bundels, aangevuld met NL/BE-gemeente-entiteiten met eigen bevolking."""
+    """extras uit alle bundels, aangevuld met NL/BE-gemeente-entiteiten en de landtotaalbasis
+    van AW/CW/SX/BQ/SR (_COUNTRY_TOTAL_KINDS) met eigen bevolking."""
     pop = dict(extras_pop or {})
-    gem = entities[entities['kind'].isin(_MUNICIPAL_KINDS)]
+    gem = entities[entities['kind'].isin(_MUNICIPAL_KINDS + _COUNTRY_TOTAL_KINDS)]
     for eid, value in gem[['entity_id', 'population']].values:
         if eid not in pop and not _is_empty(value):
             pop[eid] = int(value)
@@ -363,11 +374,23 @@ def _fill_same_as(entities, memberships, municipal_population, warnings):
     return out
 
 
+def _flag_missing_country_totals(entities, country_total_mask, warnings):
+    """Runlogregel voor 'country total'-rijen zonder bevolking (land zonder bekend cijfer)."""
+    missing = entities[country_total_mask & entities['population'].isna()]
+    if len(missing):
+        pairs = [f'{e} ({c})' for e, c in missing[['entity_id', 'country']].values]
+        msg = (f"{len(missing)} 'country total'-rijen zonder landbevolking (bevolking leeg): "
+               f"{_sample(pairs)}")
+        log.warning(msg)
+        warnings.append(msg)
+
+
 def build_master(cache, loaders: list[tuple[str, Callable]] | None = None) -> SourceBundle:
     """Draai alle laders, voeg samen, vul bevolking en valideer.
 
     Geeft de samengevoegde SourceBundle; extras['municipal_population'] is de volledige
-    gemeentebevolking (NL/BE/DE) en extras['warnings'] de waarschuwingen voor de runlog.
+    gemeentebevolking (NL/BE/DE, plus de landtotaalbasis van AW/CW/SX/BQ/SR) en
+    extras['warnings'] de waarschuwingen voor de runlog.
     """
     ctx = _run_loaders(cache, default_loaders() if loaders is None else loaders)
     merged = ctx.merged
@@ -389,7 +412,9 @@ def build_master(cache, loaders: list[tuple[str, Callable]] | None = None) -> So
     for w in sum_warnings:
         log.warning(w)
     warnings.extend(sum_warnings)
+    country_total = entities['population_method'] == 'country total'
     entities = apply_country_totals(entities, muni_pop)
+    _flag_missing_country_totals(entities, country_total, warnings)
     entities = _fill_same_as(entities, memberships, muni_pop, warnings)
     entities['population'] = pd.to_numeric(entities['population'], errors='coerce')
 

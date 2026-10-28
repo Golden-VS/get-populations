@@ -27,7 +27,7 @@ import pandas as pd
 from step2_enrich import setup_file_logging
 from tam.ai import CostTracker
 from tam.classify import classify_cooperations, estimate_classification_cost
-from tam.config import DEFAULT_MAX_COST, IN_TAM_STATUSES, MODEL, REFERENCE_DIR
+from tam.config import COUNTRIES, DEFAULT_MAX_COST, IN_TAM_STATUSES, MODEL, REFERENCE_DIR
 from tam.master import build_master
 from tam.matching import (
     MATCH_COLUMNS, UNMATCHED_COLUMNS, apply_overrides, build_name_index, crm_in_scope, entities_by_country,
@@ -198,7 +198,7 @@ def run_make_template(args) -> int:
         raise UsageError(f'{args.template} bestaat al; gebruik --update om nieuwe rijen toe te '
                          f'voegen (ingevulde rijen blijven staan).')
     verb = 'toegevoegd aan' if args.update else 'geschreven naar'
-    print(f'{n} rijen {verb} {args.template} ({len(products)} producten x 3 landen).')
+    print(f'{n} rijen {verb} {args.template} ({len(products)} producten x {len(COUNTRIES)} landen).')
     if strays:
         print(f'{len(strays)} product/sales unit-combinaties buiten de hoofdlijst '
               f'(komen in de runlog).')

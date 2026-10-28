@@ -196,7 +196,7 @@ def test_default_loader_order():
     specs = default_loaders()
     assert [s[0] for s in specs] == DEFAULT_ORDER == [
         'nl_cbs', 'nl_oo', 'nl_hand', 'be_wikidata', 'be_op', 'be_wb', 'de_gv', 'de_feu',
-        'de_hand', 'aliases']
+        'de_hand', 'carib_sr', 'aliases']
     deps = {s[0]: (s[2] if len(s) > 2 else ()) for s in specs}
     assert deps['be_op'] == ('be_wikidata',) and deps['be_wb'] == ('be_wikidata',)
     assert deps['de_hand'] == ('de_gv',)
@@ -235,6 +235,7 @@ def test_cooperation_members_from_other_bundle():
 def test_default_wiring_passes_exact_arguments(monkeypatch):
     import tam.sources.aliases as al
     import tam.sources.be as be
+    import tam.sources.carib as carib
     import tam.sources.de as de
     import tam.sources.nl as nl
 
@@ -272,6 +273,7 @@ def test_default_wiring_passes_exact_arguments(monkeypatch):
     monkeypatch.setattr(de, 'load_de_gv', record('de_gv', de_gv))
     monkeypatch.setattr(de, 'load_de_feu', record('de_feu'))
     monkeypatch.setattr(de, 'load_de_hand', record('de_hand'))
+    monkeypatch.setattr(carib, 'load_carib_sr', record('carib_sr'))
     monkeypatch.setattr(al, 'load_predecessors', record('aliases'))
 
     result = build_master(cache)
@@ -280,6 +282,7 @@ def test_default_wiring_passes_exact_arguments(monkeypatch):
     for name in ('nl_cbs', 'nl_oo', 'be_wikidata', 'de_gv', 'de_feu'):
         assert calls[name] == ((cache,), {})
     assert calls['nl_hand'] == ((), {})
+    assert calls['carib_sr'] == ((), {})
     args, kwargs = calls['be_op']
     assert args[0] is cache and args[1] is names and not kwargs
     args, kwargs = calls['be_wb']

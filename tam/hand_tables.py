@@ -1,4 +1,5 @@
-"""Handtabellen voor de TAM/whitespace-lijstbouwer (NL en BE).
+"""Handtabellen voor de TAM/whitespace-lijstbouwer (NL en BE; Caribisch deel en Suriname:
+tam/hand_tables_carib.py).
 
 Vorm zoals step2_enrich.NL_WATERSCHAP_INWONERS: sleutel = naam, waarde = dict met
 'population', 'peildatum' en 'bron_url', plus een vaste 'id' (nooit afgeleid van de naam
@@ -9,7 +10,6 @@ Alle bronnen geraadpleegd op 2026-10-27.
 
 STATBEL_POP_URL = ('https://statbel.fgov.be/nl/open-data/'
                    'bevolking-naar-woonplaats-nationaliteit-burgerlijke-staat-leeftijd-en-geslacht-14')
-CBS_BES_URL = 'https://opendata.cbs.nl/statline/#/CBS/nl/dataset/83698NED/table'
 BELGIUM_FOD_URL = ('https://www.belgium.be/nl/over_belgie/overheid/federale_overheid/'
                    'federale_en_programmatorische_overheidsdiensten')
 BXL_INTERCO_URL = ('https://be.brussels/fr/propos-de-la-region/structure-et-organisation/'
@@ -20,36 +20,8 @@ ZONES_PDF_URL = ('https://civieleveiligheid.be/sites/default/files/explorer/part
 # ---------------------------------------------------------------------------
 # Nederland
 # ---------------------------------------------------------------------------
-# CBS StatLine 83698NED 'Caribisch Nederland; bevolking; geslacht, leeftijd, burgerlijke
-# staat', onderwerp 'Bevolking op 1 januari', totaal geslacht/leeftijd/burgerlijke staat,
-# periode 2026 (CBS-codes GM9001-GM9003).
-NL_OPENBARE_LICHAMEN = {
-    'Openbaar lichaam Bonaire': {'id': 'NL-HAND-BONAIRE', 'population': 27611, 'peildatum': '2026-01-01',
-                                 'bron_url': CBS_BES_URL, 'official_ids': 'cbs:GM9001',
-                                 'aliases': ['Bonaire']},
-    'Openbaar lichaam Sint Eustatius': {'id': 'NL-HAND-SINT-EUSTATIUS', 'population': 3348,
-                                        'peildatum': '2026-01-01', 'bron_url': CBS_BES_URL,
-                                        'official_ids': 'cbs:GM9002',
-                                        'aliases': ['Sint Eustatius', 'Statia']},
-    'Openbaar lichaam Saba': {'id': 'NL-HAND-SABA', 'population': 2270, 'peildatum': '2026-01-01',
-                              'bron_url': CBS_BES_URL, 'official_ids': 'cbs:GM9003',
-                              'aliases': ['Saba']},
-}
-
-# Landen binnen het Koninkrijk; cijfers van het eigen statistiekbureau.
-# Aruba: de site van CBS Aruba (cbs.aw) was niet automatisch te lezen (botcontrole) en een
-# exact officieel cijfer kon niet worden geverifieerd; bevolking daarom leeg (handmatig
-# aanvullen vanaf de bron_url).
-NL_LANDEN_CARIBISCH = {
-    'Aruba': {'id': 'NL-HAND-ARUBA', 'population': None, 'peildatum': '',
-              'bron_url': 'https://cbs.aw/wp/index.php/population/', 'aliases': ['Land Aruba']},
-    'Curaçao': {'id': 'NL-HAND-CURACAO', 'population': 158006, 'peildatum': '2026-01-01',
-                'bron_url': 'https://www.cbs.cw/population', 'aliases': ['Land Curaçao']},
-    'Sint Maarten': {'id': 'NL-HAND-SINT-MAARTEN', 'population': 42449, 'peildatum': '2025-01-01',
-                     'bron_url': ('https://www.sintmaartengov.org/news/Pages/Rebased-Population-'
-                                  'Estimates-and-Vital-Statistics-for-January-1-2025.aspx'),
-                     'aliases': ['Land Sint Maarten']},
-}
+# Openbare lichamen Bonaire/Sint Eustatius/Saba en de landen Aruba/Curacao/Sint Maarten staan
+# sinds spec sectie 15 in tam/hand_tables_carib.py (eigen landen AW/CW/SX/BQ).
 
 # Vaste ids en weergavenamen voor de Amsterdamse stadsdelen uit
 # step2_enrich.NL_STADSDEEL_INWONERS, gesleuteld op bron_url (die tabel is per stadsdeel

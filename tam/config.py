@@ -19,6 +19,8 @@ DETAILED_SEGMENTS = {
     'Local government': [
         'Municipality', 'County-level city', 'City district', 'Island authority',
         'Municipal autonomous agency',
+        # sectie 15: Surinaamse districten (achteraan, bestaande volgorde blijft gelijk)
+        'District administration',
     ],
     'Regional government': [
         'State', 'Region / Community', 'Province', 'Administrative district',
@@ -50,7 +52,6 @@ KIND_TO_SEGMENT = {
     'nl_stadsdeel': ('Local government', 'City district'),
     'be_district': ('Local government', 'City district'),
     'de_bezirk': ('Local government', 'City district'),
-    'nl_openbaar_lichaam': ('Local government', 'Island authority'),
     'be_agb': ('Local government', 'Municipal autonomous agency'),
     'de_stadtstaat': ('Regional government', 'State'),
     'de_bundesland': ('Regional government', 'State'),
@@ -65,7 +66,6 @@ KIND_TO_SEGMENT = {
     'de_bundesministerium': ('National government', 'Ministry'),
     'nl_rijksorganisatie': ('National government', 'National agency'),
     'be_fod': ('National government', 'Federal public service'),
-    'nl_land_caribisch': ('National government', 'Country government (Caribbean)'),
     'nl_veiligheidsregio': ('Public safety & emergency', 'Safety region'),
     'be_politiezone': ('Public safety & emergency', 'Police zone'),
     'be_hulpverleningszone': ('Public safety & emergency', 'Emergency services zone'),
@@ -76,13 +76,28 @@ KIND_TO_SEGMENT = {
     'nl_samenwerking': ('Inter-municipal cooperation', None),
     'be_samenwerking': ('Inter-municipal cooperation', None),
     'be_intercommunale': ('Inter-municipal cooperation', None),
+    # Caribisch deel van het Koninkrijk en Suriname (spec sectie 15)
+    'carib_land': ('National government', 'Country government (Caribbean)'),
+    'carib_ministerie': ('National government', 'Ministry'),
+    'bq_openbaar_lichaam': ('Local government', 'Island authority'),
+    'bq_rijksdienst': ('National government', 'National agency'),
+    'sr_regering': ('National government', 'National agency'),
+    'sr_ministerie': ('National government', 'Ministry'),
+    'sr_district': ('Local government', 'District administration'),
 }
 
 IN_TAM_STATUSES = ['yes', 'no - below cutoff', 'no - excluded kind', 'unknown - population missing']
 
-COUNTRIES = ['NL', 'BE', 'DE']
-# CRM-landcodes naar TAM-land (Caribisch Nederland valt onder NL)
-CRM_COUNTRY_TO_TAM = {'NL': 'NL', 'BE': 'BE', 'DE': 'DE', 'AW': 'NL', 'CW': 'NL', 'SX': 'NL', 'BQ': 'NL'}
+# AW/CW/SX = Aruba, Curacao, Sint Maarten; BQ = Caribisch Nederland (Bonaire, Sint Eustatius,
+# Saba); SR = Suriname (spec sectie 15)
+COUNTRIES = ['NL', 'BE', 'DE', 'AW', 'CW', 'SX', 'BQ', 'SR']
+# CRM-landcodes (stap 1, detected_country) naar TAM-land. Stap 1 kent geen SR: Surinaamse
+# accounts zijn OTHER en krijgen SR via het adresland (ADDRESS_COUNTRY_TO_TAM, crm_in_scope).
+CRM_COUNTRY_TO_TAM = {'NL': 'NL', 'BE': 'BE', 'DE': 'DE', 'AW': 'AW', 'CW': 'CW', 'SX': 'SX',
+                      'BQ': 'BQ', 'SR': 'SR'}
+# Adresland (cx_address1_country / cx_address3_country, kleine letters) -> TAM-land, alleen
+# voor accounts die stap 1 als OTHER of UNKNOWN markeerde
+ADDRESS_COUNTRY_TO_TAM = {'suriname': 'SR'}
 
 REFERENCE_DIR = Path('reference/tam')
 CACHE_MAX_AGE_DAYS = 365

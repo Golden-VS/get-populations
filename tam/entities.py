@@ -142,7 +142,9 @@ def apply_member_population(entities, memberships, municipal_population):
 
 
 def apply_country_totals(entities, municipal_population):
-    """'country total'-rijen krijgen de som van alle gemeenten van hun land."""
+    """'country total'-rijen krijgen de som van alle gemeenten van hun land (voor AW/CW/SX/BQ/SR:
+    de landrij, eilanden of districten, zie tam/master.py). Geen basis = bevolking leeg en
+    methode 'unknown'."""
     out = entities.copy()
     totals: dict[str, int] = {}
     for mid, pop in municipal_population.items():
@@ -154,6 +156,8 @@ def apply_country_totals(entities, municipal_population):
         if country in totals:
             out.at[idx, 'population'] = totals[country]
         else:
+            out.at[idx, 'population'] = float('nan')
+            out.at[idx, 'population_method'] = 'unknown'
             log.warning("Geen gemeentebevolking voor land %s; 'country total' blijft leeg voor %s",
                         country, out.at[idx, 'entity_id'])
     return out

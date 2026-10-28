@@ -88,14 +88,14 @@ def test_other_country_governmental_listed_out_of_scope():
     assert row['reason'] == 'land buiten scope'
 
 
-def test_caribbean_maps_to_nl():
-    entities = ents(dict(entity_id='NL-HAND-CW', name='Curaçao', country='NL', kind='nl_land_caribisch'))
+def test_caribbean_maps_to_own_country():
+    entities = ents(dict(entity_id='CW-HAND-CURACAO', name='Curaçao', country='CW', kind='carib_land'))
     frame = crm(dict(name='Land Curaçao', canonical_name='Curaçao', detected_type='land',
                      detected_country='CW'))
     scope, _ = crm_in_scope(frame)
-    assert scope.iloc[0]['tam_country'] == 'NL'
+    assert scope.iloc[0]['tam_country'] == 'CW'
     matched, rest = run_pass1(frame, entities)
-    assert matched_ids(matched) == {'acc-0': 'NL-HAND-CW'}
+    assert matched_ids(matched) == {'acc-0': 'CW-HAND-CURACAO'}
     assert len(rest) == 0
 
 

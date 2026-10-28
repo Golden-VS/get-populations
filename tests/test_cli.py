@@ -7,6 +7,7 @@ import pytest
 from openpyxl import load_workbook
 
 import tam_build
+from tam.config import COUNTRIES
 from tam.entities import (ALIAS_COLUMNS, ENTITY_COLUMNS, MEMBERSHIP_COLUMNS, SourceBundle,
                           SourceStatus, new_entity)
 
@@ -107,13 +108,14 @@ def _run_args(tmp_path, tpl, *extra, crm_extra=()):
             '--output', str(tmp_path / 'out.xlsx'), *extra]
 
 
-def test_make_template_end_to_end(tmp_path):
+def test_make_template_end_to_end(tmp_path, capsys):
     tpl = tmp_path / 'tpl.xlsx'
     rc = tam_build.main(['--make-template', '--products', str(_products(tmp_path)),
                          '--config', str(_config(tmp_path)), '--template', str(tpl)])
     assert rc == 0
+    assert f'x {len(COUNTRIES)} landen' in capsys.readouterr().out
     df = pd.read_excel(tpl, sheet_name='tam_definitions')
-    assert len(df) == 3 * 2
+    assert len(df) == len(COUNTRIES) * 2
     assert set(df['company']) == {'Company A'}
 
 

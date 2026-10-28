@@ -6,9 +6,59 @@ from pathlib import Path
 import pandas as pd
 
 from tam.config import REFERENCE_DIR
+from tam.xlsx_util import autofit_columns, write_instructions
 
 log = logging.getLogger(__name__)
 SHEETS = ['TAM', 'CRM matches', 'Entities', 'Memberships', 'CRM unmatched', 'Run log']
+
+# Tekst van het instructieblad (eerste tabblad) van het uitvoerbestand.
+OUTPUT_INSTRUCTIONS = [
+    ('TAM-uitvoer: zo lees je dit bestand', None),
+    (None, None),
+    ('Wat is dit?', 'De TAM-lijst per kernproduct en land, gemaakt door tam_build.py uit het '
+     'ingevulde template, met de koppeling naar de CRM-accounts. Bedoeld om in Power BI te laden.'),
+    (None, None),
+    ('Blad TAM', 'Een rij per kernproduct x land x organisatie in de gekozen segmenten.'),
+    ('  in_tam', 'yes = hoort bij de TAM; no - below cutoff = minder inwoners dan '
+     'min_population; no - excluded kind = soort uitgesloten in excluded_kinds; '
+     'unknown - population missing = ondergrens ingesteld maar inwonertal onbekend '
+     '(Power BI kiest zelf). Filter op yes voor de TAM.'),
+    ('  in_tam_reason', 'Waarom deze status (bv. inwoners 7.512 < 10.000).'),
+    ('  matched_accounts', 'Aantal gekoppelde CRM-accounts. 0 = geen account, dus zeker '
+     'whitespace; >0 = account bestaat, Power BI bepaalt via de omzet of het blackspace is.'),
+    ('  population', 'Vertegenwoordigd inwonertal (samenwerkingen: som van de deelnemende '
+     'gemeenten). Basis voor ARPU per inwoner x factor per detailed_segment.'),
+    (None, None),
+    ('Blad CRM matches', 'Een rij per gekoppeld CRM-account. Koppel in Power BI de omzet op '
+     'accountid en via entity_id aan het blad TAM.'),
+    ('  match_pass', 'rule = vaste regel (KvK/KBO-nummer of exacte naam); ai = gekoppeld door '
+     'de AI; override = handmatige correctie uit het template.'),
+    ('  confidence', 'high / medium / low. Controleer de low-koppelingen; fout? Corrigeer via '
+     'het tabblad match_overrides van het template.'),
+    ('  match_reason', 'Toelichting, bv. KvK/KBO-nummer, same name, predecessor (opgeheven '
+     'gemeente) of de reden van de AI.'),
+    (None, None),
+    ('Blad Entities', 'De volledige lijst van overheidsorganisaties (alle landen en soorten) met '
+     'id, segment, detailed_segment, inwonertal, methode (own, sum of members, country total, '
+     'same as municipality, unknown), bron en officiele codes. Hier vind je de entity_id voor '
+     'een override.'),
+    (None, None),
+    ('Blad Memberships', 'Welke gemeenten (of andere leden) deelnemen in welke samenwerking. '
+     'Betaalt een samenwerking, dan kan Power BI de leden als afgedekt tellen; kies per '
+     'detailed_segment welke soorten samenwerking dat mogen.'),
+    (None, None),
+    ('Blad CRM unmatched', 'CRM-accounts zonder organisatie, met reden: geen kandidaat boven '
+     'drempel (meestal commercieel), AI: geen passende organisatie, land buiten scope, '
+     'override: geen match, of een technische reden. Controleer een steekproef; een gemist '
+     'account kan een betalende klant als whitespace laten verschijnen.'),
+    (None, None),
+    ('Blad Run log', 'Invoer, bronnen en hun datum, aantallen, AI-kosten, waarschuwingen en '
+     'open punten van deze run.'),
+    (None, None),
+    ('Corrigeren', 'Zet correcties in het tabblad match_overrides van het template '
+     '(accountid + juiste entity_id, of entity_id leeg voor geen match) en draai tam_build.py '
+     'opnieuw.'),
+]
 
 
 def check_known_detailed(values: set, path: Path = REFERENCE_DIR / 'known_detailed.json',
@@ -67,6 +117,8 @@ def write_output(path: Path, *, tam, matches, entities, memberships, unmatched, 
                     for cell in row:
                         cell.number_format = '@'
                         cell.data_type = 's'
+            autofit_columns(ws)
+        write_instructions(writer.book, OUTPUT_INSTRUCTIONS)
     return [path]
 
 

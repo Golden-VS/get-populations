@@ -194,3 +194,14 @@ def test_instructions_sheet_first_and_kept_on_update(tmp_path):
     assert wb.sheetnames.count('instructies') == 1 and wb.sheetnames[0] == 'instructies'
     defs, _ = read_template(p)
     assert defs == []
+
+
+def test_template_columns_fitted(tmp_path):
+    from openpyxl import load_workbook
+    p = tmp_path / 't.xlsx'
+    products = pd.DataFrame([('Company A', 'A rather long sales unit name', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p)
+    ws = load_workbook(p)['tam_definitions']
+    assert ws.column_dimensions['B'].width >= len('A rather long sales unit name')
+    assert ws.column_dimensions['G'].width >= len('min_population')

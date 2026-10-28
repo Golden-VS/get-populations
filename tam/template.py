@@ -7,6 +7,7 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 
 from tam.config import COUNTRIES, DETAILED_SEGMENTS, SEGMENTS, all_detailed
+from tam.xlsx_util import autofit_columns, write_instructions
 
 DEF_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'segments',
                'excluded_kinds', 'min_population', 'notes']
@@ -142,21 +143,14 @@ INSTRUCTIONS = [
 
 def _instructions_sheet(wb: Workbook) -> None:
     """(Her)bouw het instructieblad als eerste tabblad en maak het actief."""
-    from openpyxl.styles import Alignment, Font
+    write_instructions(wb, INSTRUCTIONS)
 
-    if 'instructies' in wb.sheetnames:
-        del wb['instructies']
-    ws = wb.create_sheet('instructies', 0)
-    for left, right in INSTRUCTIONS:
-        ws.append([left, right])
-        row = ws.max_row
-        ws.cell(row, 2).alignment = Alignment(wrap_text=True, vertical='top')
-        ws.cell(row, 1).alignment = Alignment(vertical='top')
-        if left and not left.startswith('  '):
-            ws.cell(row, 1).font = Font(bold=True, size=14 if row == 1 else 11)
-    ws.column_dimensions['A'].width = 26
-    ws.column_dimensions['B'].width = 100
-    wb.active = 0
+
+def _fit_columns(wb: Workbook) -> None:
+    """Kolombreedtes zo dat 80% van de waarden past (instructieblad heeft vaste breedtes)."""
+    for ws in wb.worksheets:
+        if ws.title != 'instructies':
+            autofit_columns(ws)
 
 
 def _lists_sheet(wb: Workbook) -> None:
@@ -181,8 +175,6 @@ def _lists_sheet(wb: Workbook) -> None:
     last = ws.max_row
     ws.freeze_panes = 'A2'
     ws.auto_filter.ref = f'A1:D{last}'
-    for col, width in zip('ABCD', (28, 32, 22, 80)):
-        ws.column_dimensions[col].width = width
     ws.append([])
     ws.append(['segments: alleen de segmentnamen uit kolom A. excluded_kinds: waarden uit kolom B '
                'die binnen die segmenten vallen.'])
@@ -210,6 +202,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
         wb.create_sheet('match_overrides').append(OVERRIDE_COLUMNS)
         _lists_sheet(wb)
         _instructions_sheet(wb)
+        _fit_columns(wb)
         wb.save(path)
         return len(rows)
     wb = load_workbook(path)
@@ -222,6 +215,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
             added += 1
     _lists_sheet(wb)
     _instructions_sheet(wb)
+    _fit_columns(wb)
     wb.save(path)
     return added
 

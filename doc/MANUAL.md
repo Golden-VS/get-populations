@@ -526,10 +526,11 @@ the cached file). Only a source without any cached copy fails.
 
 ### Step D: reading the output
 
-The result is `tam_<date>.xlsx` (gitignored) with these sheets:
+The result is `tam_<date>.xlsx` (gitignored) with these sheets. In both the output and the template, column widths are set so that at least 80% of the values fit (never narrower than the heading; capped at 80 characters):
 
 | Sheet | Contents | Use in Power BI |
 |---|---|---|
+| `instructies` | First tab: a short Dutch guide to every sheet, the `in_tam` statuses, `match_pass`/`confidence` and how to correct matches | Not loaded; for readers |
 | `TAM` | One row per (template row x entity in the selected segments): company, sales unit, core product, country, `entity_id`, name, `detailed_segment`, `population`, `in_tam`, `in_tam_reason`, number of matched accounts, `notes` from the template | The white space base |
 | `CRM matches` | One row per matched account: `entity_id`, `accountid`, CRM name, `match_pass`, `match_reason`, `confidence` | Join revenue per `accountid` to `entity_id`, then to `TAM` (black space) |
 | `Entities` | The full master list with all attributes (kind, region, ids, population method, source and date) | Audit, optional dimension table |

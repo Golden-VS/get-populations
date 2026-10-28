@@ -29,8 +29,9 @@ def test_sheet_order_and_names(tmp_path):
     p = tmp_path / 'o.xlsx'
     assert write_output(p, **frames()) == [p]
     wb = load_workbook(p)
-    assert wb.sheetnames == ['TAM', 'CRM matches', 'Entities', 'Memberships', 'CRM unmatched', 'Run log']
-    for ws in wb.worksheets:
+    assert wb.sheetnames == ['instructies', 'TAM', 'CRM matches', 'Entities', 'Memberships',
+                             'CRM unmatched', 'Run log']
+    for ws in wb.worksheets[1:]:
         assert ws.freeze_panes == 'A2' and ws.auto_filter.ref, ws.title
     ws = wb['Entities']
     col = [c.value for c in ws[1]].index('official_ids')
@@ -121,3 +122,18 @@ def test_open_points_section():
     log = build_run_log(open_points=['OP-dump: licentie niet vermeld'])
     assert ('== Open punten ==', '') in log
     assert ('open punt', 'OP-dump: licentie niet vermeld') in log
+
+
+def test_output_has_instructions_first_and_fitted_widths(tmp_path):
+    p = tmp_path / 'o.xlsx'
+    write_output(p, **frames())
+    wb = load_workbook(p)
+    assert wb.sheetnames[0] == 'instructies' and wb.active.title == 'instructies'
+    text = ' '.join(str(c) for r in wb['instructies'].iter_rows(values_only=True) for c in r if c)
+    for word in ('TAM', 'CRM matches', 'Entities', 'Memberships', 'CRM unmatched', 'Run log',
+                 'in_tam', 'match_pass', 'confidence', 'match_overrides'):
+        assert word in text
+    ws = wb['Entities']
+    col = [c.value for c in ws[1]].index('official_ids')
+    from openpyxl.utils import get_column_letter
+    assert ws.column_dimensions[get_column_letter(col + 1)].width >= len('official_ids')

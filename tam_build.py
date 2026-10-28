@@ -141,6 +141,20 @@ def _concat(frames: list[pd.DataFrame], columns: list[str]) -> pd.DataFrame:
     return pd.concat([f[columns] for f in frames], ignore_index=True)
 
 
+def _with_crm_segment(unmatched: pd.DataFrame, crm: pd.DataFrame) -> pd.DataFrame:
+    """Voeg het segment uit stap 1b toe aan 'CRM unmatched', zodat de lezer kan filteren op
+    Governmental/Unknown (de accounts die het nakijken waard zijn) en de commerciele en
+    non-profit accounts kan overslaan."""
+    out = unmatched.copy()
+    for target, source in (('crm_segment', 'Segment'), ('crm_segment_category', 'Segment (category)')):
+        if source in crm.columns:
+            lookup = dict(zip(crm['accountid'], crm[source].map(_text)))
+            out[target] = out['accountid'].map(lookup).fillna('')
+        else:
+            out[target] = ''
+    return out
+
+
 def _float_score(frame: pd.DataFrame) -> pd.DataFrame:
     """best_score altijd float (NaN = geen score), zodat concat geen dtype-gok hoeft te doen."""
     return frame.assign(best_score=pd.to_numeric(frame['best_score'], errors='coerce').astype(float))
@@ -322,7 +336,7 @@ def run_build(args) -> int:
     unmatched = _concat([_float_score(f) for f in (unmatched2, override_none, out_of_scope_gov)],
                         UNMATCHED_COLUMNS)
     unmatched = unmatched[~unmatched['accountid'].isin(set(matches['accountid']))]
-    unmatched = unmatched.reset_index(drop=True)
+    unmatched = _with_crm_segment(unmatched.reset_index(drop=True), crm)
 
     # 7. TAM-rijen
     match_counts = matches.groupby('entity_id')['accountid'].nunique().to_dict() if len(matches) else {}

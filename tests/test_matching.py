@@ -661,7 +661,7 @@ def test_no_candidate_no_ai_call(tmp_path, fake_ai):
     assert len(matched) == 0
     assert list(unmatched.columns) == UNMATCHED_COLUMNS
     row = unmatched.iloc[0]
-    assert row['reason'] == 'geen kandidaat boven drempel'
+    assert row['reason'] == 'geen overheidsorganisatie met gelijkende naam'
     assert row['best_candidate'] == ''
     assert row['tam_country'] == 'NL'
     assert stats['no_candidate'] == 1

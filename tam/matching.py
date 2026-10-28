@@ -503,7 +503,8 @@ def candidates(row, entities_by_country, index, k=10) -> list[dict]:
 MATCH_CACHE_COLUMNS = ['accountid', 'name', 'candidate_hash', 'entity_id', 'reason',
                        'confidence', 'datum']
 NONE_ID = 'none'
-REASON_NO_CANDIDATE = 'geen kandidaat boven drempel'
+# 'Drempel' sloeg op de naamgelijkenis, niet op inwoners; daarom deze duidelijkere tekst.
+REASON_NO_CANDIDATE = 'geen overheidsorganisatie met gelijkende naam'
 REASON_AI_NONE = 'AI: geen passende organisatie'
 REASON_NO_AI = 'AI overgeslagen (--no-ai)'
 REASON_CAP = 'kostenplafond bereikt'
@@ -648,7 +649,7 @@ def pass2(rest: pd.DataFrame, entities, aliases, client, tracker, *, use_ai: boo
           index=None, by_country=None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """AI-matching van de accounts die pass 1 overliet -> (matched, unmatched, stats).
 
-    - Accounts zonder kandidaat gaan nooit naar de AI ('geen kandidaat boven drempel').
+    - Accounts zonder kandidaat gaan nooit naar de AI (REASON_NO_CANDIDATE).
     - Cache per accountid, alleen hergebruikt bij gelijke naam en kandidatenset; ook met
       use_ai=False. Alleen echte AI-antwoorden (match of none) worden gecachet, nooit
       fallbacks (weigering, fout, plafond, --no-ai, id buiten de lijst, ontbrekend antwoord).

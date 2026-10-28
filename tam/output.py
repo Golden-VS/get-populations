@@ -47,10 +47,16 @@ OUTPUT_INSTRUCTIONS = [
      'Betaalt een samenwerking, dan kan Power BI de leden als afgedekt tellen; kies per '
      'detailed_segment welke soorten samenwerking dat mogen.'),
     (None, None),
-    ('Blad CRM unmatched', 'CRM-accounts zonder organisatie, met reden: geen kandidaat boven '
-     'drempel (meestal commercieel), AI: geen passende organisatie, land buiten scope, '
-     'override: geen match, of een technische reden. Controleer een steekproef; een gemist '
-     'account kan een betalende klant als whitespace laten verschijnen.'),
+    ('Blad CRM unmatched', 'CRM-accounts die aan geen enkele overheidsorganisatie gekoppeld zijn. '
+     'Een gemist account kan een betalende klant als whitespace laten verschijnen; controleer '
+     'daarom vooral de accounts met crm_segment_category Governmental of Unknown.'),
+    ('  reason', 'geen overheidsorganisatie met gelijkende naam = geen enkele organisatie in de '
+     'lijst lijkt qua naam op dit account (meestal een bedrijf, apotheek e.d.; het gaat niet om '
+     'inwoners); AI: geen passende organisatie = wel gelijkende namen, maar de AI vond geen '
+     'juiste; land buiten scope; override: geen match; of een technische reden.'),
+    ('  crm_segment(_category)', 'Het segment uit de CRM-segmentatie (stap 1b): Governmental, '
+     'Non-profit, Commercial of Unknown. Filter op Governmental en Unknown om de ruis van '
+     'bedrijven en non-profit over te slaan.'),
     (None, None),
     ('Blad Run log', 'Invoer, bronnen en hun datum, aantallen, AI-kosten, waarschuwingen en '
      'open punten van deze run.'),

@@ -263,10 +263,14 @@ def test_unmatched_concat_without_future_warning(tmp_path, env):
     unmatched = pd.read_excel(tmp_path / 'out.xlsx', sheet_name='CRM unmatched')
     reasons = dict(zip(unmatched['accountid'], unmatched['reason']))
     assert reasons == {'acc-4': 'AI overgeslagen (--no-ai)',
-                       'acc-5': 'geen kandidaat boven drempel',
+                       'acc-5': 'geen overheidsorganisatie met gelijkende naam',
                        'acc-3': 'land buiten scope'}
     score = dict(zip(unmatched['accountid'], unmatched['best_score']))
     assert score['acc-4'] > 0 and pd.isna(score['acc-5']) and pd.isna(score['acc-3'])
+    # CRM-segment uit stap 1b staat erbij, zodat je op Governmental/Unknown kunt filteren
+    assert list(unmatched.columns)[-2:] == ['crm_segment', 'crm_segment_category']
+    cat = dict(zip(unmatched['accountid'], unmatched['crm_segment_category']))
+    assert cat['acc-5'] == 'Governmental'
 
 
 def test_override_to_entity_skips_pass2_and_unmatched(tmp_path, env, monkeypatch, capsys):

@@ -51,6 +51,8 @@ Landelijke set (alleen actieve records, dus zonder eindDatum in het verleden):
                        bedrijf, Gemeente, Waterschap, Provincie of Regionaal samenwerkingsorgaan.
   Bewust niet: adviescolleges, externe commissies, rechtspraak, Hoge Colleges van Staat,
   Politie (publieke veiligheid, geen bestuursorgaan met eigen inkoop), Organisatieonderdelen.
+  Gevestigd in Caribisch Nederland (alle adressen met plaats/land op Bonaire, Sint Eustatius of
+  Saba): land BQ, kind bq_rijksdienst, id BQ-OO-<systeemId>, landtotaal BQ (spec sectie 15).
 """
 from __future__ import annotations
 
@@ -67,7 +69,8 @@ from step2_enrich import (CBS_ODATA_URL, NL_STADSDEEL_INWONERS, NL_WATERSCHAP_IN
                           discover_cbs_gebieden_table, normalize)
 from tam import hand_tables
 from tam.config import USER_AGENT
-from tam.entities import ALIAS_COLUMNS, SourceBundle, SourceStatus, make_entity_id, new_entity
+from tam.entities import (ALIAS_COLUMNS, SourceBundle, SourceStatus, hand_entity, make_entity_id,
+                          new_entity)
 from tam.sources.common import SourceCache
 
 log = logging.getLogger(__name__)
@@ -230,6 +233,14 @@ _VGGM = {'vggm', 'veiligheids en gezondheidsregio gelderland midden'}
 _OO_COLUMNS = ['entity_id', 'official_ids']
 # Maximale lengte van de doeltekst per orgaan (unie over GR'en) in coop_descriptions
 DESCRIPTION_MAX_CHARS = 400
+# Caribisch Nederland (spec sectie 15): landelijke organisaties met een adres op Bonaire, Sint
+# Eustatius of Saba gaan naar land BQ. Herkend aan adres/land (waargenomen 2026-10-28: 'Bonaire',
+# 'Sint Eustatius', 'Saba', 'Caribisch Nederland') of aan de woonplaats (waargenomen: 'Kralendijk',
+# 'Kralendijk, Bonaire', 'The Bottom', 'The Bottom, Saba', 'Oranjestad, Sint Eustatius',
+# 'Oranjestad A-456, Sint-Eustatius'). Een kale 'Oranjestad' telt niet (ook de hoofdstad van Aruba).
+_BQ_LANDEN = {'bonaire', 'sint eustatius', 'st eustatius', 'saba', 'caribisch nederland'}
+_BQ_PLAATS_RE = re.compile(
+    r'\b(kralendijk|rincon|bonaire|the bottom|windwardside|saba|sint eustatius|st eustatius|statia)\b')
 
 
 def _tooi(text):
@@ -254,12 +265,29 @@ def _read_org(el) -> dict:
     for r in el.iter(OO_NS + 'resourceIdentifier'):
         ids.setdefault(r.get(OO_NS + 'naam'), (r.text or '').strip())
     types = [t.text for t in el.findall(f'{OO_NS}types/{OO_NS}type')]
+    addresses = [((a.findtext(OO_NS + 'woonplaats') or '').strip(), (a.findtext(OO_NS + 'land') or '').strip())
+                 for a in el.findall(f'{OO_NS}adressen/{OO_NS}adres')]
     tooi_attr = el.get(OO_NS + 'resourceIdentifierTOOI') or ids.get('resourceIdentifierTOOI')
     return {
         'id': el.get(OO_NS + 'systeemId'), 'name': (el.findtext(OO_NS + 'naam') or '').strip(),
         'types': types, 'end': el.findtext(OO_NS + 'eindDatum'),
-        'tooi': _tooi(tooi_attr), 'ids': ids,
+        'tooi': _tooi(tooi_attr), 'ids': ids, 'addresses': addresses,
     }
+
+
+def _address_place(woonplaats: str, land: str):
+    """'BQ', 'other' (een andere plaats of een ander land) of None (adres zonder plaats/land)."""
+    land_n = normalize(land.replace('-', ' '))
+    plaats_n = normalize(woonplaats.replace('-', ' '))
+    if land_n in _BQ_LANDEN or _BQ_PLAATS_RE.search(plaats_n):
+        return 'BQ'
+    return 'other' if land_n or plaats_n else None
+
+
+def _in_caribbean_netherlands(org: dict) -> bool:
+    """Alle adressen met plaats of land liggen in Caribisch Nederland (minstens een)."""
+    places = {_address_place(w, l) for w, l in org.get('addresses', [])} - {None}
+    return places == {'BQ'}
 
 
 def _official_ids(org: dict) -> str:
@@ -345,6 +373,7 @@ def parse_oo_export(xml_path: Path, run_date: date) -> SourceBundle:
     # Waterschappen en landelijke organisaties
     ws_ids = set()
     n_nat = {'nl_ministerie': 0, 'nl_rijksorganisatie': 0}
+    n_bq = 0
     for org in orgs.values():
         if not _is_active(org['end'], run_date):
             continue
@@ -373,9 +402,15 @@ def parse_oo_export(xml_path: Path, run_date: date) -> SourceBundle:
             continue
         if 'Gemeente' in types or 'Waterschap' in types:
             continue
-        n_nat[kind] += 1
+        country = 'NL'
+        if _in_caribbean_netherlands(org):
+            # gevestigd in Caribisch Nederland: eigen land BQ, landtotaal BQ (spec sectie 15)
+            country, kind = 'BQ', 'bq_rijksdienst'
+            n_bq += 1
+        else:
+            n_nat[kind] += 1
         rows.append(new_entity(
-            entity_id=make_entity_id('NL', 'OO', org['id']), name=org['name'], country='NL',
+            entity_id=make_entity_id(country, 'OO', org['id']), name=org['name'], country=country,
             kind=kind, population_method='country total', official_ids=_official_ids(org),
             source=OO_SOURCE, source_date=source_date))
 
@@ -439,7 +474,8 @@ def parse_oo_export(xml_path: Path, run_date: date) -> SourceBundle:
     msg = (f'{n_active} actieve GR\'en ({n_nobody} zonder orgaan), {len(bodies)} organen, '
            f'{counts.get("nl_veiligheidsregio", 0)} veiligheidsregio\'s, '
            f'{counts.get("nl_waterschap", 0)} waterschappen, {n_nat["nl_ministerie"]} ministeries, '
-           f'{n_nat["nl_rijksorganisatie"]} rijksorganisaties, {len(patches)} gemeente-id-patches, '
+           f'{n_nat["nl_rijksorganisatie"]} rijksorganisaties, {n_bq} landelijke organisaties naar BQ '
+           f'(Caribisch Nederland), {len(patches)} gemeente-id-patches, '
            f'{len(descriptions)} organen met doel/OWMS-naam')
     log.info('OO: %s', msg)
     bundle.status.append(SourceStatus('nl_oo', True, len(bundle.entities), source_date, msg))
@@ -461,14 +497,7 @@ def load_nl_oo(cache: SourceCache) -> SourceBundle:
 # NL-handrijen: Amsterdamse stadsdelen (Caribisch deel: tam/sources/carib.py)
 # ---------------------------------------------------------------------------
 def _hand_entity(eid, name, kind, row, region=''):
-    pop = row.get('population')
-    return new_entity(
-        entity_id=eid, name=name, country='NL', kind=kind, region=region,
-        population=pop, population_method='own' if pop is not None else 'unknown',
-        population_source=row['bron_url'] if pop is not None else '',
-        population_date=str(row.get('peildatum', '')) if pop is not None else '',
-        official_ids=row.get('official_ids', ''), source=row['bron_url'],
-        source_date=str(row.get('peildatum', '')))
+    return hand_entity(eid, name, 'NL', kind, row, region=region)
 
 
 def load_nl_hand() -> SourceBundle:

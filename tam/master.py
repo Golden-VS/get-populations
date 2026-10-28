@@ -374,17 +374,6 @@ def _fill_same_as(entities, memberships, municipal_population, warnings):
     return out
 
 
-def _flag_missing_country_totals(entities, country_total_mask, warnings):
-    """Runlogregel voor 'country total'-rijen zonder bevolking (land zonder bekend cijfer)."""
-    missing = entities[country_total_mask & entities['population'].isna()]
-    if len(missing):
-        pairs = [f'{e} ({c})' for e, c in missing[['entity_id', 'country']].values]
-        msg = (f"{len(missing)} 'country total'-rijen zonder landbevolking (bevolking leeg): "
-               f"{_sample(pairs)}")
-        log.warning(msg)
-        warnings.append(msg)
-
-
 def build_master(cache, loaders: list[tuple[str, Callable]] | None = None) -> SourceBundle:
     """Draai alle laders, voeg samen, vul bevolking en valideer.
 
@@ -412,9 +401,7 @@ def build_master(cache, loaders: list[tuple[str, Callable]] | None = None) -> So
     for w in sum_warnings:
         log.warning(w)
     warnings.extend(sum_warnings)
-    country_total = entities['population_method'] == 'country total'
-    entities = apply_country_totals(entities, muni_pop)
-    _flag_missing_country_totals(entities, country_total, warnings)
+    entities = apply_country_totals(entities, muni_pop, warnings)
     entities = _fill_same_as(entities, memberships, muni_pop, warnings)
     entities['population'] = pd.to_numeric(entities['population'], errors='coerce')
 

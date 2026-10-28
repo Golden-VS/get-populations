@@ -147,6 +147,22 @@ def test_ministerie_country_total():
     assert 'NL-OO-9032' not in set(b.entities.entity_id)   # adviescollege uitgesloten
 
 
+def test_oo_bodies_in_caribbean_netherlands_move_to_bq():
+    # spec 15: adres op Bonaire/Sint Eustatius/Saba (land of woonplaats) = BQ, Rijksdienst-kind
+    b = _oo()
+    e = b.entities.set_index('entity_id')
+    for sid in ('9033', '9034'):
+        assert f'NL-OO-{sid}' not in e.index
+        row = e.loc[f'BQ-OO-{sid}']
+        assert row['country'] == 'BQ' and row['kind'] == 'bq_rijksdienst'
+        assert row['population_method'] == 'country total'
+        assert row['detailed_segment'] == 'National agency'
+    # ook een adres in Nederland: blijft NL; kale 'Oranjestad' (ook Aruba) is geen BQ
+    assert e.loc['NL-OO-9035', 'country'] == 'NL'
+    assert e.loc['NL-OO-9036', 'country'] == 'NL'
+    assert 'naar BQ' in b.status[0].message
+
+
 def test_id_patches_for_active_gemeenten():
     b = _oo()
     p = b.extras['id_patches']

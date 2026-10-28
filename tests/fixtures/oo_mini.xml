@@ -61,6 +61,26 @@
       <p:naam>Raad van Advies</p:naam>
       <p:types><p:type>Adviescollege</p:type><p:type>Zelfstandig bestuursorgaan</p:type></p:types>
     </p:organisatie>
+    <p:organisatie p:systeemId="9033">
+      <p:naam>Kamer Eiland Een</p:naam>
+      <p:types><p:type>Zelfstandig bestuursorgaan</p:type></p:types>
+      <p:adressen><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>Kralendijk</p:woonplaats><p:land>Bonaire</p:land></p:adres></p:adressen>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9034">
+      <p:naam>Dienst Eiland Twee</p:naam>
+      <p:types><p:type>Agentschap</p:type></p:types>
+      <p:adressen><p:adres><p:adresType>Postadres</p:adresType><p:woonplaats>Oranjestad A-1, Sint-Eustatius</p:woonplaats></p:adres><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>The Bottom</p:woonplaats></p:adres></p:adressen>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9035">
+      <p:naam>Landelijke Dienst met Eilandkantoor</p:naam>
+      <p:types><p:type>Agentschap</p:type></p:types>
+      <p:adressen><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>Den Haag</p:woonplaats><p:provincie>https://identifier.overheid.nl/tooi/id/provincie/pv28</p:provincie></p:adres><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>Kralendijk</p:woonplaats></p:adres></p:adressen>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9036">
+      <p:naam>Dienst in Oranjestad</p:naam>
+      <p:types><p:type>Agentschap</p:type></p:types>
+      <p:adressen><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>Oranjestad</p:woonplaats></p:adres></p:adressen>
+    </p:organisatie>
   </p:organisaties>
   <p:gemeenschappelijkeRegelingen>
     <p:regeling p:systeemId="8001">

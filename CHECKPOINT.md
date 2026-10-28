@@ -239,7 +239,10 @@ real run with `--refresh-cache` -> review low-confidence matches and
   `sr_district` (new detailed segment `District administration`). Country
   totals: AW/CW/SX country row, BQ islands sum, SR districts sum (ABS census
   2012). CRM: AW/CW/SX/BQ map to themselves; OTHER accounts with address
-  country Suriname become SR. Aruba population still empty (CBS Aruba site not
+  country Suriname become SR (also UNKNOWN/empty detected_country). National
+  bodies of the NL organisation register located on Bonaire, Sint Eustatius or
+  Saba (both chambers of commerce today) move to BQ as `bq_rijksdienst`
+  (`BQ-OO-<systeemId>`). Aruba population still empty (CBS Aruba site not
   machine-readable); ministries change per cabinet, recheck yearly.
 - Known data limitations (also in MANUAL): 552 of 565 BE municipalities
   covered by a police zone (DG gap), Aruba (and its ministries)/FWB population

@@ -113,6 +113,26 @@ def new_entity(**fields) -> dict:
     return row
 
 
+def hand_entity(entity_id: str, name: str, country: str, kind: str, row: dict, region: str = '',
+                country_total: bool = False) -> dict:
+    """Entiteit uit een handtabelrij ('population', 'peildatum', 'bron_url', optioneel
+    'official_ids'). Methode: 'country total' als country_total, anders 'own' met bevolking of
+    'unknown' zonder; bron en peildatum van de bevolking alleen als die er is."""
+    pop = row.get('population')
+    has_pop = pop is not None
+    if country_total:
+        method = 'country total'
+    else:
+        method = 'own' if has_pop else 'unknown'
+    return new_entity(
+        entity_id=entity_id, name=name, country=country, kind=kind, region=region,
+        population=pop, population_method=method,
+        population_source=row['bron_url'] if has_pop else '',
+        population_date=str(row.get('peildatum', '')) if has_pop else '',
+        official_ids=row.get('official_ids', ''), source=row['bron_url'],
+        source_date=str(row.get('peildatum', '')))
+
+
 def _is_empty(value) -> bool:
     return value is None or value == '' or pd.isna(value)
 
@@ -141,15 +161,17 @@ def apply_member_population(entities, memberships, municipal_population):
     return out, warnings
 
 
-def apply_country_totals(entities, municipal_population):
+def apply_country_totals(entities, municipal_population, warnings: list | None = None):
     """'country total'-rijen krijgen de som van alle gemeenten van hun land (voor AW/CW/SX/BQ/SR:
     de landrij, eilanden of districten, zie tam/master.py). Geen basis = bevolking leeg en
-    methode 'unknown'."""
+    methode 'unknown'; daarover een waarschuwing (een regel voor alle rijen), ook in `warnings`."""
     out = entities.copy()
     totals: dict[str, int] = {}
     for mid, pop in municipal_population.items():
         prefix = mid.split('-', 1)[0]
         totals[prefix] = totals.get(prefix, 0) + pop
+    missing: list[str] = []
+    countries: list[str] = []
     mask = out['population_method'] == 'country total'
     for idx in out.index[mask]:
         country = out.at[idx, 'country']
@@ -158,6 +180,14 @@ def apply_country_totals(entities, municipal_population):
         else:
             out.at[idx, 'population'] = float('nan')
             out.at[idx, 'population_method'] = 'unknown'
-            log.warning("Geen gemeentebevolking voor land %s; 'country total' blijft leeg voor %s",
-                        country, out.at[idx, 'entity_id'])
+            missing.append(str(out.at[idx, 'entity_id']))
+            if country not in countries:
+                countries.append(country)
+    if missing:
+        shown = ', '.join(missing[:20]) + (f' (+{len(missing) - 20} meer)' if len(missing) > 20 else '')
+        msg = (f"Geen bevolkingsbasis voor land {', '.join(countries)}: {len(missing)} 'country "
+               f"total'-rijen zonder bevolking (methode unknown): {shown}")
+        log.warning(msg)
+        if warnings is not None:
+            warnings.append(msg)
     return out

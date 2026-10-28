@@ -529,7 +529,9 @@ call; the user can narrow it).
     country total for all of them.
   - BQ: the three openbare lichamen (`Island authority`, Local government),
     own population; Rijksdienst Caribisch Nederland as `National agency`
-    (country total of BQ).
+    (country total of BQ). National bodies from the NL organisation register
+    whose addresses all lie on Bonaire, Sint Eustatius or Saba move to BQ as
+    `National agency` too (id `BQ-OO-<systeemId>`, country total of BQ).
   - SR: the Republic's government and each ministry (National government;
     country total) and the 10 districts as Local government with the new
     detailed value `District administration` (district population from the
@@ -539,8 +541,9 @@ call; the user can narrow it).
   Country totals: AW/CW/SX from the country row, BQ = sum of the islands,
   SR = sum of the districts.
 - **CRM matching**: `detected_country` AW/CW/SX/BQ map to their own country.
-  Suriname accounts (step 1 has no SR detection, they are `OTHER`) are put in
-  scope as `SR` when the CRM address country says Suriname. Step 1 is not
+  Suriname accounts (step 1 has no SR detection, they are `OTHER`, or
+  `UNKNOWN`/empty without an address-1 country) are put in scope as `SR` when
+  the CRM address country (address 1, else address 3) says Suriname. Step 1 is not
   changed. Compatible kinds: `land` and `ministerie` types include the new
   national kinds; `onbekend` goes to pass 2 as everywhere.
 - **Template**: `--update` adds rows for the new countries.

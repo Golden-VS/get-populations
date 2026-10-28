@@ -569,7 +569,7 @@ Five extra countries, each with its own template rows and its own TAM:
 | Country | Entities | Population |
 |---|---|---|
 | `AW` Aruba, `CW` Curacao, `SX` Sint Maarten | The country government (`Country government (Caribbean)`) and each ministry (`Ministry`) | Country total for all of them, from the national statistics office (Aruba: empty, see below) |
-| `BQ` Caribbean Netherlands | The three island authorities Bonaire, Sint Eustatius, Saba (`Island authority`) and the Rijksdienst Caribisch Nederland (`National agency`) | Islands: CBS (1 January); Rijksdienst: sum of the islands |
+| `BQ` Caribbean Netherlands | The three island authorities Bonaire, Sint Eustatius, Saba (`Island authority`), the Rijksdienst Caribisch Nederland and the national bodies from the Dutch organisation register located on the islands (for example the chambers of commerce) (`National agency`) | Islands: CBS (1 January); national agencies: sum of the islands |
 | `SR` Suriname | The government of the Republic (`National agency`), each ministry (`Ministry`) and the 10 districts (`District administration`, a new detailed segment under Local government) | Districts: ABS census 2012, the latest official district figures; government and ministries: sum of the districts |
 
 All rows come from hand tables in `tam/hand_tables_carib.py` with a fixed
@@ -581,10 +581,14 @@ Fill it in by hand in the hand table when a figure is available.
 
 CRM accounts: step 1 already tags Aruba, Curacao, Sint Maarten and Caribbean
 Netherlands; they now count toward their own country (no longer NL). Step 1
-does not know Suriname: accounts it marks as abroad (`OTHER`) whose address
-country is Suriname are put in scope as `SR`. Accounts typed `land` or
-`ministerie` by step 1 can match a country government, ministry, Rijksdienst
-or island authority of their own country by name; the rest go to the AI step.
+does not know Suriname: accounts it marks as abroad (`OTHER`) or without a
+country (`UNKNOWN` or empty) whose address country (address 1, else address 3)
+is Suriname are put in scope as `SR`. In the rule-based matching, only within
+the account's own country: an account typed `land` by step 1 can match the
+country government, a ministry, a national agency or an island authority; an
+account typed `ministerie` or `rijksoverheid` can match the country
+government, a ministry or a national agency (not an island authority). All
+other accounts go to the AI step.
 
 ### Reviewing the matches
 
@@ -665,9 +669,6 @@ These are visible in the `Run log`; none stops the run.
 - **Suriname district populations are from the 2012 census**: the 2024-2025
   census had no published results yet. Update the hand table when ABS
   publishes them.
-- **Caribbean bodies in the Dutch register stay NL**: the two chambers of
-  commerce of Bonaire and of Sint Eustatius and Saba are listed in the Dutch
-  organisation register as national agencies and stay in the NL TAM.
 
 ---
 

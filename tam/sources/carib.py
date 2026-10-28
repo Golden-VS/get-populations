@@ -11,28 +11,12 @@ import logging
 import pandas as pd
 
 from tam import hand_tables_carib as hc
-from tam.entities import ALIAS_COLUMNS, SourceBundle, SourceStatus, new_entity
+from tam.entities import ALIAS_COLUMNS, SourceBundle, SourceStatus, hand_entity
 
 log = logging.getLogger(__name__)
 
 # Kinds met een landtotaal in plaats van een eigen bevolking
 COUNTRY_TOTAL_KINDS = frozenset({'carib_ministerie', 'bq_rijksdienst', 'sr_regering', 'sr_ministerie'})
-
-
-def _entity(name: str, row: dict) -> dict:
-    pop = row.get('population')
-    if row['kind'] in COUNTRY_TOTAL_KINDS:
-        method = 'country total'
-    else:
-        method = 'own' if pop is not None else 'unknown'
-    has_pop = pop is not None
-    return new_entity(
-        entity_id=row['id'], name=name, country=row['country'], kind=row['kind'],
-        population=pop, population_method=method,
-        population_source=row['bron_url'] if has_pop else '',
-        population_date=str(row.get('peildatum', '')) if has_pop else '',
-        official_ids=row.get('official_ids', ''), source=row['bron_url'],
-        source_date=str(row.get('peildatum', '')))
 
 
 def load_carib_sr() -> SourceBundle:
@@ -41,7 +25,8 @@ def load_carib_sr() -> SourceBundle:
     rows, aliases = [], []
     for table in hc.TABLES:
         for name, row in table.items():
-            entity = _entity(name, row)
+            entity = hand_entity(row['id'], name, row['country'], row['kind'], row,
+                                 country_total=row['kind'] in COUNTRY_TOTAL_KINDS)
             rows.append(entity)
             if entity['population_method'] == 'unknown':
                 log.warning('%s (%s): geen officieel bevolkingscijfer in de handtabel (bron: %s)',

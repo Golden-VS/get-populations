@@ -1,5 +1,6 @@
 """Caribisch deel van het Koninkrijk en Suriname (spec sectie 15)."""
 import math
+import re
 
 import pandas as pd
 from openpyxl import Workbook, load_workbook
@@ -66,8 +67,9 @@ def test_every_hand_row_has_source_date_and_fixed_id():
     assert len(ids) == len(set(ids))
 
 
-def test_population_only_with_date():
+def test_population_has_iso_reference_date():
     for name, row in _rows():
+        assert re.fullmatch(r'\d{4}-\d{2}-\d{2}', row['peildatum']), name
         if row['population'] is not None:
             assert isinstance(row['population'], int) and row['population'] > 0, name
 
@@ -144,6 +146,21 @@ def test_country_totals_in_master():
     assert len(sx) and (sx['population'] == e.loc['SX-HAND-SINT-MAARTEN', 'population']).all()
 
 
+def test_country_total_missing_logged_once(caplog):
+    from tam.entities import apply_country_totals
+    rows = [dict(entity_id=f'AW-HAND-MIN-{i}', name=str(i), country='AW', kind='carib_ministerie',
+                 population_method='country total') for i in range(3)]
+    ents = pd.DataFrame([new_entity(**r) for r in rows], columns=ENTITY_COLUMNS)
+    warnings = []
+    with caplog.at_level('WARNING'):
+        out = apply_country_totals(ents, {}, warnings)
+    records = [r for r in caplog.records if r.name == 'tam.entities']
+    assert len(records) == 1 and 'blijft leeg' not in records[0].getMessage()
+    assert all(f'AW-HAND-MIN-{i}' in records[0].getMessage() for i in range(3))
+    assert warnings == [records[0].getMessage()]
+    assert set(out['population_method']) == {'unknown'}
+
+
 def test_country_total_missing_flagged_and_unknown():
     # land zonder bevolkingscijfer: ministeries leeg, methode unknown, regel in de runlog
     rows = [dict(entity_id='AW-HAND-X', name='X', country='AW', kind='carib_land', population=None,
@@ -158,7 +175,7 @@ def test_country_total_missing_flagged_and_unknown():
     e = result.entities.set_index('entity_id')
     assert math.isnan(e.loc['AW-HAND-MIN-Y', 'population'])
     assert e.loc['AW-HAND-MIN-Y', 'population_method'] == 'unknown'
-    assert any('AW-HAND-MIN-Y' in w for w in result.extras['warnings'])
+    assert sum('AW-HAND-MIN-Y' in w for w in result.extras['warnings']) == 1
 
 
 # ---------- matching ----------
@@ -226,6 +243,28 @@ def test_caribbean_ministry_rule_match_in_own_country():
         'acc-0': 'CW-HAND-MIN-JUSTITIE', 'acc-1': 'CW-HAND-CURACAO',
         'acc-2': 'SR-HAND-MIN-DEFENSIE', 'acc-3': 'BQ-HAND-BONAIRE'}
     assert len(rest) == 0
+
+
+def test_caribbean_ministry_never_matches_nl_ministry():
+    # isolatie: een CW-account 'Ministerie van Justitie' mag niet op een NL-ministerie vallen,
+    # ook niet als CW zo'n ministerie niet kent (dan pass 2)
+    entities = pd.DataFrame([new_entity(**r) for r in [
+        dict(entity_id='NL-OO-1', name='Ministerie van Justitie', country='NL', kind='nl_ministerie'),
+        dict(entity_id='NL-OO-2', name='Ministerie van Financiën', country='NL', kind='nl_ministerie'),
+        dict(entity_id='CW-HAND-MIN-JUSTITIE', name='Ministerie van Justitie', country='CW',
+             kind='carib_ministerie'),
+    ]], columns=ENTITY_COLUMNS)
+    frame = _crm(
+        dict(name='Ministerie van Justitie', canonical_name='van Justitie', detected_type='ministerie',
+             detected_country='CW'),
+        dict(name='Ministerie van Financiën', canonical_name='van Financiën', detected_type='ministerie',
+             detected_country='CW'),
+    )
+    scope, _ = crm_in_scope(frame)
+    alias_frame = pd.DataFrame(columns=ALIAS_COLUMNS)
+    matched, rest = pass1(scope, entities, build_name_index(entities, alias_frame))
+    assert dict(zip(matched['accountid'], matched['entity_id'])) == {'acc-0': 'CW-HAND-MIN-JUSTITIE'}
+    assert list(rest['accountid']) == ['acc-1']
 
 
 # ---------- sjabloon ----------

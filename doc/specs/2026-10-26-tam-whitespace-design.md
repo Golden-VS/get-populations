@@ -351,7 +351,7 @@ it appends rows for new core products and leaves filled rows untouched.
 **`TAM`**: one row per (template row x entity in the selected segments).
 Kept narrow so it stays well under Excel's row limit: `company, sales_unit,
 core_product, country, entity_id, name, detailed_segment, population, in_tam,
-in_tam_reason, matched_accounts (count)`. Other entity attributes live in
+in_tam_reason, matched_accounts (count), notes`. Other entity attributes live in
 `Entities` (join on `entity_id`).
 
 `in_tam` values:
@@ -510,3 +510,40 @@ python tam_build.py --template tam_template.xlsx [--crm step1b_segmented.xlsx]
 - **CRM input for the first run**: `input_crm_27-10-2026.csv` (delivered by
   the user 2026-10-27), processed through steps 1 and 1b.
 - Dropped as unnecessary: CSV fallback for oversized TAM sheets.
+
+## 15. Addition: Dutch Caribbean and Suriname (2026-10-28)
+
+User requirement: add the Dutch-speaking Caribbean and Suriname. Interpreted
+as the six Kingdom islands where Dutch is an official language (Aruba,
+Curacao, Sint Maarten, Bonaire, Sint Eustatius, Saba) plus Suriname (my
+call; the user can narrow it).
+
+- **Countries**: new template/entity countries `AW`, `CW`, `SX`, `BQ`
+  (Caribisch Nederland: Bonaire, Sint Eustatius, Saba) and `SR`. The NL TAM
+  no longer contains Caribbean rows; the six existing hand rows move to their
+  own country (ids change once; no history exists yet).
+- **Entities** (hand tables, fixed ids, `bron_url` + `peildatum` per row,
+  never invented values):
+  - AW, CW, SX: the country government (`Country government (Caribbean)`,
+    National government) and each ministry (`Ministry`). Population: the
+    country total for all of them.
+  - BQ: the three openbare lichamen (`Island authority`, Local government),
+    own population; Rijksdienst Caribisch Nederland as `National agency`
+    (country total of BQ). National bodies from the NL organisation register
+    whose addresses all lie on Bonaire, Sint Eustatius or Saba move to BQ as
+    `National agency` too (id `BQ-OO-<systeemId>`, country total of BQ).
+  - SR: the Republic's government and each ministry (National government;
+    country total) and the 10 districts as Local government with the new
+    detailed value `District administration` (district population from the
+    Algemeen Bureau voor de Statistiek; ressorts are not entities).
+- **Populations**: official statistics offices (CBS Aruba, CBS Curacao, STAT
+  Sint Maarten, CBS for BQ, ABS Suriname). Unsourced -> empty + flagged.
+  Country totals: AW/CW/SX from the country row, BQ = sum of the islands,
+  SR = sum of the districts.
+- **CRM matching**: `detected_country` AW/CW/SX/BQ map to their own country.
+  Suriname accounts (step 1 has no SR detection, they are `OTHER`, or
+  `UNKNOWN`/empty without an address-1 country) are put in scope as `SR` when
+  the CRM address country (address 1, else address 3) says Suriname. Step 1 is not
+  changed. Compatible kinds: `land` and `ministerie` types include the new
+  national kinds; `onbekend` goes to pass 2 as everywhere.
+- **Template**: `--update` adds rows for the new countries.

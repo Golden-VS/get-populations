@@ -1,7 +1,7 @@
 # CRM Population Enrichment - Project Checkpoint
 
 > Handoff document for continuing this project in a fresh Claude Code session.
-> Last updated: 2026-06-16
+> Last updated: 2026-10-28
 
 ---
 
@@ -190,6 +190,75 @@ Run `git log --oneline` for the complete list.
 - Review filters: `proces` "geen match"/"niet in" = misses; `proces` "LET OP"
   = unresolved name collision / non-exact match; `population_gewijzigd` =
   what would change in the CRM.
+
+---
+
+## TAM / whitespace feature (added 2026-10-27)
+
+**Status**: implemented on branch `feature/tam-whitespace` (not yet merged to
+`main`; merge after the first real run is reviewed). Spec:
+`doc/specs/2026-10-26-tam-whitespace-design.md` (section 14 wins where it
+differs). Operator runbook: MANUAL section 7.
+
+**What it is**: `tam_build.py` builds a master list of all governmental bodies
+in NL/BE/DE from official registers, plus hand tables for AW/CW/SX/BQ/SR (spec
+section 15), matches CRM accounts to it (rules first,
+Claude for the rest), and writes `tam_<date>.xlsx` (sheets TAM, CRM matches,
+Entities, Memberships, CRM unmatched, Run log) for Power BI white/black space.
+
+**Files**: `tam_build.py` (CLI), `tam/` package (`config`, `entities`,
+`sources/` register loaders, `hand_tables*`, `master`, `classify`, `matching`,
+`ai`, `template`, `tam_rows`, `output`), `tam_config.example.json`
+(real `tam_config.json` and `.env` are gitignored), tests in `tests/`.
+
+**How to run** (yearly): fresh CRM export -> step 1 -> step 1b (`set -a; . ./.env;
+set +a` first) -> `tam_build.py --make-template` (or `--make-template --update`)
+-> business fills `tam_definitions` -> `--dry-run` (AI estimate vs $50 cap) ->
+real run with `--refresh-cache` -> review low-confidence matches and
+`CRM unmatched`, correct via `match_overrides`.
+
+**Open points**
+- The OP (Flemish organisation portal) dump licence is unverified; check
+  before relying on it commercially.
+- First real run on `input_crm_27-10-2026.csv` still to be reviewed with the
+  user (steps 1 and 1b were already re-run on it).
+- Final fix wave (2026-10-27, after the first real run): DE pass-1 narrowing
+  needs a close postcode, no name rule without a compatible type, BE
+  predecessor aliases from the OP dump, stale-cache fallback for failed
+  downloads, NL cooperation classification uses the register 'doel' text
+  (classify cache gained `input_hash`, so the next real run reclassifies all
+  cooperations once, roughly $1-3), worst-case cost-cap check, template
+  duplicate check, `notes` column, run-log open points and loader warnings.
+- Dutch Caribbean and Suriname (2026-10-28, spec section 15): new countries
+  AW, CW, SX, BQ, SR with their own template rows (`--make-template --update`
+  adds them; done on the local template). Hand tables in
+  `tam/hand_tables_carib.py`, loader `carib_sr` (`tam/sources/carib.py`). The
+  six former NL Caribbean hand rows moved (ids now `AW-HAND-ARUBA`,
+  `BQ-HAND-BONAIRE`, ...). Kinds `carib_land`, `carib_ministerie`,
+  `bq_openbaar_lichaam`, `bq_rijksdienst`, `sr_regering`, `sr_ministerie`,
+  `sr_district` (new detailed segment `District administration`). Country
+  totals: AW/CW/SX country row, BQ islands sum, SR districts sum (ABS census
+  2012). CRM: AW/CW/SX/BQ map to themselves; OTHER accounts with address
+  country Suriname become SR (also UNKNOWN/empty detected_country). National
+  bodies of the NL organisation register located on Bonaire, Sint Eustatius or
+  Saba (both chambers of commerce today) move to BQ as `bq_rijksdienst`
+  (`BQ-OO-<systeemId>`). Aruba population still empty (CBS Aruba site not
+  machine-readable); ministries change per cabinet, recheck yearly.
+- Known data limitations (also in MANUAL): 552 of 565 BE municipalities
+  covered by a police zone (DG gap), Aruba (and its ministries)/FWB population
+  unknown, Suriname districts on the 2012 census, 28 Saxon
+  VGs as Verband fallback, most IT Zweckverbaende and all other Zweckverbaende
+  population unknown, KVJS and Bezirksverband Pfalz member sets cited from
+  secondary sources, sparse predecessor aliases for Wallonia/DE (Flemish
+  mergers come from the OP dump), NL GR member codes of dissolved municipalities
+  (Jeugdhulp Rijnmond) understate population, Walloon/Brussels
+  intercommunales population unknown, no KBO register.
+- Deferred (spec 12 and 14): step 2 upgrade to the official registers (open
+  item 5 below, still open); KBO open data for W/B regies and official ids;
+  step 1b move to Opus 5.5 and the fixed detailed-segment list; non-governmental
+  segments; members/population for W/B intercommunales and non-IT
+  Zweckverbaende; code-based predecessor map for NL GR member codes; chaining
+  of cooperations of cooperations.
 
 ---
 

@@ -1,0 +1,127 @@
+<http://ex.org/cls/gemeente> <http://www.w3.org/2004/02/skos/core#prefLabel> """Gemeente""".
+<http://ex.org/cls/ocmw> <http://www.w3.org/2004/02/skos/core#prefLabel> """OCMW""".
+<http://ex.org/cls/pz> <http://www.w3.org/2004/02/skos/core#prefLabel> """Politiezone""".
+<http://ex.org/cls/pv> <http://www.w3.org/2004/02/skos/core#prefLabel> """Projectvereniging""".
+<http://ex.org/cls/agb> <http://www.w3.org/2004/02/skos/core#prefLabel> """Autonoom gemeentebedrijf""".
+<http://ex.org/cls/wv> <http://www.w3.org/2004/02/skos/core#prefLabel> """Welzijnsvereniging""".
+<http://ex.org/st/actief> <http://www.w3.org/2004/02/skos/core#prefLabel> """Actief""".
+<http://ex.org/st/inactief> <http://www.w3.org/2004/02/skos/core#prefLabel> """Niet Actief""".
+<http://ex.org/role/participant> <http://www.w3.org/2004/02/skos/core#prefLabel> """participant""".
+<http://ex.org/role/stichtend> <http://www.w3.org/2004/02/skos/core#prefLabel> """stichtend lid""".
+<http://ex.org/role/gerelateerd> <http://www.w3.org/2004/02/skos/core#prefLabel> """gerelateerd""".
+<http://ex.org/org/g1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/g1> <http://www.w3.org/2004/02/skos/core#prefLabel> """Alfadorp""".
+<http://ex.org/org/g1> <http://www.w3.org/ns/regorg#legalName> """Alfadorp""".
+<http://ex.org/org/g1> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/gemeente>.
+<http://ex.org/org/g1> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/g1> <http://data.vlaanderen.be/ns/besluit#werkingsgebied> <http://ex.org/wg/g1>.
+<http://ex.org/wg/g1> <http://www.w3.org/2004/02/skos/core#exactMatch> <http://vocab.belgif.be/auth/refnis2025/11001>.
+<http://ex.org/org/g1> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/g1kbo>.
+<http://ex.org/id/g1kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/g1kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/g1kbo>.
+<http://ex.org/gi/g1kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """0207000001""".
+<http://ex.org/org/g2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/g2> <http://www.w3.org/2004/02/skos/core#prefLabel> """Sint-Bétadorp""".
+<http://ex.org/org/g2> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/gemeente>.
+<http://ex.org/org/g2> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/g3> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/g3> <http://www.w3.org/2004/02/skos/core#prefLabel> """Oudgem""".
+<http://ex.org/org/g3> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/gemeente>.
+<http://ex.org/org/g3> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/inactief>.
+<http://ex.org/ce/1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/org#ChangeEvent>.
+<http://ex.org/ce/1> <http://www.w3.org/ns/org#originalOrganization> <http://ex.org/org/g3>.
+<http://ex.org/ce/1> <http://www.w3.org/ns/org#resultingOrganization> <http://ex.org/org/g1>.
+<http://ex.org/org/o2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/o2> <http://www.w3.org/2004/02/skos/core#prefLabel> """Sint-Bétadorp""".
+<http://ex.org/org/o2> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/ocmw>.
+<http://ex.org/org/o2> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/o2> <http://data.vlaanderen.be/ns/besluit#werkingsgebied> <http://ex.org/wg/g2>.
+<http://ex.org/wg/g2> <http://www.w3.org/2004/02/skos/core#exactMatch> <http://vocab.belgif.be/auth/refnis2025/11002>.
+<http://ex.org/org/pz1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/pz1> <http://www.w3.org/2004/02/skos/core#prefLabel> """PZ Alfa/Bèta""".
+<http://ex.org/org/pz1> <http://www.w3.org/ns/regorg#legalName> """PZ Alfa/Bèta""".
+<http://ex.org/org/pz1> <http://www.w3.org/2004/02/skos/core#altLabel> """5999 PZ Alfa/Bèta""".
+<http://ex.org/org/pz1> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/pz>.
+<http://ex.org/org/pz1> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/pz1> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/pz1kbo>.
+<http://ex.org/id/pz1kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/pz1kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/pz1kbo>.
+<http://ex.org/gi/pz1kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """0862000001""".
+<http://ex.org/m/1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/org#Membership>.
+<http://ex.org/m/1> <http://www.w3.org/ns/org#organization> <http://ex.org/org/pz1>.
+<http://ex.org/m/1> <http://www.w3.org/ns/org#member> <http://ex.org/org/g1>.
+<http://ex.org/m/1> <http://www.w3.org/ns/org#role> <http://ex.org/role/participant>.
+<http://ex.org/m/2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/org#Membership>.
+<http://ex.org/m/2> <http://www.w3.org/ns/org#organization> <http://ex.org/org/pz1>.
+<http://ex.org/m/2> <http://www.w3.org/ns/org#member> <http://ex.org/org/g2>.
+<http://ex.org/m/2> <http://www.w3.org/ns/org#role> <http://ex.org/role/participant>.
+<http://ex.org/org/pv1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/pv1> <http://www.w3.org/2004/02/skos/core#prefLabel> """Opgeheven Project""".
+<http://ex.org/org/pv1> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/pv>.
+<http://ex.org/org/pv1> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/inactief>.
+<http://ex.org/org/pv1> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/pv1kbo>.
+<http://ex.org/id/pv1kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/pv1kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/pv1kbo>.
+<http://ex.org/gi/pv1kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """0800000001""".
+<http://ex.org/m/3> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/org#Membership>.
+<http://ex.org/m/3> <http://www.w3.org/ns/org#organization> <http://ex.org/org/pv1>.
+<http://ex.org/m/3> <http://www.w3.org/ns/org#member> <http://ex.org/org/g1>.
+<http://ex.org/m/3> <http://www.w3.org/ns/org#role> <http://ex.org/role/participant>.
+<http://ex.org/org/agb1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/agb1> <http://www.w3.org/2004/02/skos/core#prefLabel> """AGB Alfadorp""".
+<http://ex.org/org/agb1> <http://www.w3.org/ns/regorg#legalName> """AGB Alfadorp""".
+<http://ex.org/org/agb1> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/agb>.
+<http://ex.org/org/agb1> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/agb1> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/agb1kbo>.
+<http://ex.org/id/agb1kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/agb1kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/agb1kbo>.
+<http://ex.org/gi/agb1kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """0505000001""".
+<http://ex.org/m/4> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/org#Membership>.
+<http://ex.org/m/4> <http://www.w3.org/ns/org#organization> <http://ex.org/org/agb1>.
+<http://ex.org/m/4> <http://www.w3.org/ns/org#member> <http://ex.org/org/g1>.
+<http://ex.org/m/4> <http://www.w3.org/ns/org#role> <http://ex.org/role/stichtend>.
+<http://ex.org/m/5> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/org#Membership>.
+<http://ex.org/m/5> <http://www.w3.org/ns/org#organization> <http://ex.org/org/agb1>.
+<http://ex.org/m/5> <http://www.w3.org/ns/org#member> <http://ex.org/org/g1>.
+<http://ex.org/m/5> <http://www.w3.org/ns/org#role> <http://ex.org/role/participant>.
+<http://ex.org/org/wv1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/wv1> <http://www.w3.org/2004/02/skos/core#prefLabel> """Welzijn Samen""".
+<http://ex.org/org/wv1> <http://www.w3.org/ns/regorg#legalName> """Welzijnsvereniging Welzijn Samen""".
+<http://ex.org/org/wv1> <http://purl.org/dc/terms/description> """Opgericht door
+de OCMW's van Alfadorp en Sint-Bétadorp.
+""".
+<http://ex.org/org/wv1> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/wv>.
+<http://ex.org/org/wv1> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/wv1> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/wv1kbo>.
+<http://ex.org/id/wv1kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/wv1kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/wv1kbo>.
+<http://ex.org/gi/wv1kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """0682000001""".
+<http://ex.org/m/6> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/org#Membership>.
+<http://ex.org/m/6> <http://www.w3.org/ns/org#organization> <http://ex.org/org/wv1>.
+<http://ex.org/m/6> <http://www.w3.org/ns/org#member> <http://ex.org/org/o2>.
+<http://ex.org/m/6> <http://www.w3.org/ns/org#role> <http://ex.org/role/participant>.
+<http://ex.org/m/7> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/org#Membership>.
+<http://ex.org/m/7> <http://www.w3.org/ns/org#organization> <http://ex.org/org/wv1>.
+<http://ex.org/m/7> <http://www.w3.org/ns/org#member> <http://ex.org/org/g3>.
+<http://ex.org/m/7> <http://www.w3.org/ns/org#role> <http://ex.org/role/participant>.
+<http://ex.org/m/8> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/org#Membership>.
+<http://ex.org/m/8> <http://www.w3.org/ns/org#organization> <http://ex.org/org/wv1>.
+<http://ex.org/m/8> <http://www.w3.org/ns/org#member> <http://ex.org/org/g2>.
+<http://ex.org/m/8> <http://www.w3.org/ns/org#role> <http://ex.org/role/gerelateerd>.
+<http://ex.org/cls/district> <http://www.w3.org/2004/02/skos/core#prefLabel> """District""".
+<http://ex.org/org/d1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/d1> <http://www.w3.org/2004/02/skos/core#prefLabel> """Wijkveld""".
+<http://ex.org/org/d1> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/district>.
+<http://ex.org/org/d1> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/d1> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/d1kbo>.
+<http://ex.org/id/d1kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/d1kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/d1kbo>.
+<http://ex.org/gi/d1kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """2166000001""".
+<http://ex.org/org/d2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
+<http://ex.org/org/d2> <http://www.w3.org/2004/02/skos/core#prefLabel> """Alfadorp""".
+<http://ex.org/org/d2> <http://www.w3.org/ns/org#classification> <http://ex.org/cls/district>.
+<http://ex.org/org/d2> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
+<http://ex.org/org/d2> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/d2kbo>.
+<http://ex.org/id/d2kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/d2kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/d2kbo>.
+<http://ex.org/gi/d2kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """2166000002""".

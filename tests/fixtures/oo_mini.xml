@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<p:overheidsorganisaties xmlns:p="https://organisaties.overheid.nl/static/schema/oo/export/2.6.13" p:timestamp="2026-10-26T23:00:10.931+01:00">
+  <p:organisaties>
+    <p:organisatie p:systeemId="9001" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/so/so0001" p:resourceIdentifierOWMS="http://standaarden.overheid.nl/owms/terms/sw_a">
+      <p:naam>Samenwerking Alfa</p:naam>
+      <p:types><p:type>Regionaal samenwerkingsorgaan</p:type></p:types>
+      <p:identificatiecodes>
+        <p:resourceIdentifier p:naam="resourceIdentifierTOOI">https://identifier.overheid.nl/tooi/id/so/so0001</p:resourceIdentifier>
+        <p:resourceIdentifier p:naam="KVK-nummer">11111111</p:resourceIdentifier>
+        <p:resourceIdentifier p:naam="OIN">00000001111111110000</p:resourceIdentifier>
+        <p:resourceIdentifier p:naam="systeemId">9001</p:resourceIdentifier>
+      </p:identificatiecodes>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9002" p:resourceIdentifierOWMS="http://standaarden.overheid.nl/owms/terms/sw_nocode">
+      <p:naam>Samenwerking Zonder Code</p:naam>
+      <p:types><p:type>Regionaal samenwerkingsorgaan</p:type></p:types>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9003" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/so/so0003">
+      <p:naam>Veiligheidsregio Testland</p:naam>
+      <p:types><p:type>Regionaal samenwerkingsorgaan</p:type></p:types>
+      <p:identificatiecodes>
+        <p:resourceIdentifier p:naam="KVK-nummer">33333333</p:resourceIdentifier>
+      </p:identificatiecodes>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9004" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/so/so0004">
+      <p:naam>Samenwerking Beeindigd</p:naam>
+      <p:types><p:type>Regionaal samenwerkingsorgaan</p:type></p:types>
+      <p:eindDatum>2020-01-01</p:eindDatum>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9010" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0001">
+      <p:naam>Gemeente Een</p:naam>
+      <p:types><p:type>Gemeente</p:type></p:types>
+      <p:identificatiecodes>
+        <p:resourceIdentifier p:naam="resourceIdentifierTOOI">https://identifier.overheid.nl/tooi/id/gemeente/gm0001</p:resourceIdentifier>
+        <p:resourceIdentifier p:naam="KVK-nummer">12345678</p:resourceIdentifier>
+        <p:resourceIdentifier p:naam="OIN">00000001234567890000</p:resourceIdentifier>
+      </p:identificatiecodes>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9011" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0099">
+      <p:naam>Gemeente Opgeheven</p:naam>
+      <p:types><p:type>Gemeente</p:type></p:types>
+      <p:eindDatum>2019-01-01</p:eindDatum>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9020" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/waterschap/ws0654">
+      <p:naam>Aa en Maas</p:naam>
+      <p:types><p:type>Waterschap</p:type></p:types>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9021" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/waterschap/ws0999">
+      <p:naam>Waterschap Onbekend</p:naam>
+      <p:types><p:type>Waterschap</p:type></p:types>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9030" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/ministerie/mnre1010">
+      <p:naam>Algemene Zaken</p:naam>
+      <p:types><p:type>Ministerie</p:type></p:types>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9031" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/oorg/oorg10111">
+      <p:naam>Centraal Agentschap</p:naam>
+      <p:types><p:type>Agentschap</p:type></p:types>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9032">
+      <p:naam>Raad van Advies</p:naam>
+      <p:types><p:type>Adviescollege</p:type><p:type>Zelfstandig bestuursorgaan</p:type></p:types>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9033">
+      <p:naam>Kamer Eiland Een</p:naam>
+      <p:types><p:type>Zelfstandig bestuursorgaan</p:type></p:types>
+      <p:adressen><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>Kralendijk</p:woonplaats><p:land>Bonaire</p:land></p:adres></p:adressen>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9034">
+      <p:naam>Dienst Eiland Twee</p:naam>
+      <p:types><p:type>Agentschap</p:type></p:types>
+      <p:adressen><p:adres><p:adresType>Postadres</p:adresType><p:woonplaats>Oranjestad A-1, Sint-Eustatius</p:woonplaats></p:adres><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>The Bottom</p:woonplaats></p:adres></p:adressen>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9035">
+      <p:naam>Landelijke Dienst met Eilandkantoor</p:naam>
+      <p:types><p:type>Agentschap</p:type></p:types>
+      <p:adressen><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>Den Haag</p:woonplaats><p:provincie>https://identifier.overheid.nl/tooi/id/provincie/pv28</p:provincie></p:adres><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>Kralendijk</p:woonplaats></p:adres></p:adressen>
+    </p:organisatie>
+    <p:organisatie p:systeemId="9036">
+      <p:naam>Dienst in Oranjestad</p:naam>
+      <p:types><p:type>Agentschap</p:type></p:types>
+      <p:adressen><p:adres><p:adresType>Bezoekadres</p:adresType><p:woonplaats>Oranjestad</p:woonplaats></p:adres></p:adressen>
+    </p:organisatie>
+  </p:organisaties>
+  <p:gemeenschappelijkeRegelingen>
+    <p:regeling p:systeemId="8001">
+      <p:titel>GR Alfa 1</p:titel>
+      <p:regionaalSamenwerkingsorgaan p:systeemId="9001" p:resourceIdentifierOWMS="http://standaarden.overheid.nl/owms/terms/Sociale_Dienst_Alfa">Samenwerking Alfa</p:regionaalSamenwerkingsorgaan>
+      <p:doel><![CDATA[Uitvoering van de
+  Participatiewet voor de deelnemers.]]></p:doel>
+      <p:deelnemendeOrganisaties>
+        <p:deelnemendeOrganisatie p:systeemId="1" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0001"><p:naam>Gemeente Een</p:naam><p:toetredingsDatum>2010-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+        <p:deelnemendeOrganisatie p:systeemId="2" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0002"><p:naam>Gemeente Twee</p:naam><p:toetredingsDatum>2012-05-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+        <p:deelnemendeOrganisatie p:systeemId="3" p:resourceIdentifierOWMS="http://standaarden.overheid.nl/owms/terms/Oud"><p:naam>Gemeente Oud (zonder TOOI)</p:naam><p:toetredingsDatum>2001-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+      </p:deelnemendeOrganisaties>
+    </p:regeling>
+    <p:regeling p:systeemId="8002">
+      <p:titel>GR Alfa 2</p:titel>
+      <p:regionaalSamenwerkingsorgaan p:systeemId="9001">Samenwerking Alfa</p:regionaalSamenwerkingsorgaan>
+      <p:doel>Gezamenlijke ICT-dienstverlening.</p:doel>
+      <p:datumUitwerkingtreding>2999-01-01</p:datumUitwerkingtreding>
+      <p:deelnemendeOrganisaties>
+        <p:deelnemendeOrganisatie p:systeemId="2" p:resourceIdentifierTOOI="htt//identifier.overheid.nl/tooi/id/gemeente/gm0002"><p:naam>Gemeente Twee</p:naam><p:toetredingsDatum>2015-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+        <p:deelnemendeOrganisatie p:systeemId="4" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/provincie/pv20"><p:naam>Provincie Groningen</p:naam><p:toetredingsDatum>2014-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+        <p:deelnemendeOrganisatie p:systeemId="5" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/waterschap/ws0654"><p:naam>Aa en Maas</p:naam><p:toetredingsDatum>2016-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+      </p:deelnemendeOrganisaties>
+    </p:regeling>
+    <p:regeling p:systeemId="8003">
+      <p:titel>GR Beeindigd</p:titel>
+      <p:regionaalSamenwerkingsorgaan p:systeemId="9004">Samenwerking Beeindigd</p:regionaalSamenwerkingsorgaan>
+      <p:datumUitwerkingtreding>2020-01-01</p:datumUitwerkingtreding>
+      <p:deelnemendeOrganisaties>
+        <p:deelnemendeOrganisatie p:systeemId="1" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0001"><p:naam>Gemeente Een</p:naam><p:toetredingsDatum>2010-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+      </p:deelnemendeOrganisaties>
+    </p:regeling>
+    <p:regeling p:systeemId="8004">
+      <p:titel>GR Zonder Orgaan</p:titel>
+      <p:deelnemendeOrganisaties>
+        <p:deelnemendeOrganisatie p:systeemId="1" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0001"><p:naam>Gemeente Een</p:naam><p:toetredingsDatum>2010-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+      </p:deelnemendeOrganisaties>
+    </p:regeling>
+    <p:regeling p:systeemId="8005">
+      <p:titel>GR Veiligheidsregio Testland</p:titel>
+      <p:regionaalSamenwerkingsorgaan p:systeemId="9003">Veiligheidsregio Testland</p:regionaalSamenwerkingsorgaan>
+      <p:deelnemendeOrganisaties>
+        <p:deelnemendeOrganisatie p:systeemId="1" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0001"><p:naam>Gemeente Een</p:naam><p:toetredingsDatum>2010-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+      </p:deelnemendeOrganisaties>
+    </p:regeling>
+    <p:regeling p:systeemId="8006">
+      <p:titel>GR Zonder Code</p:titel>
+      <p:regionaalSamenwerkingsorgaan p:systeemId="9002" p:resourceIdentifierOWMS="http://standaarden.overheid.nl/owms/terms/Samenwerking_Zonder_Code">Samenwerking Zonder Code</p:regionaalSamenwerkingsorgaan>
+      <p:deelnemendeOrganisaties>
+        <p:deelnemendeOrganisatie p:systeemId="2" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm0002"><p:naam>Gemeente Twee</p:naam><p:toetredingsDatum>2012-05-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+      </p:deelnemendeOrganisaties>
+    </p:regeling>
+  </p:gemeenschappelijkeRegelingen>
+  <p:gemeenschappelijkeRegelingenGrensoverschrijdend>
+    <p:regeling p:systeemId="8100">
+      <p:titel>GR Grensoverschrijdend</p:titel>
+      <p:regionaalSamenwerkingsorgaan p:systeemId="9001">Samenwerking Alfa</p:regionaalSamenwerkingsorgaan>
+      <p:deelnemendeOrganisaties>
+        <p:deelnemendeOrganisatie p:systeemId="9" p:resourceIdentifierTOOI="https://identifier.overheid.nl/tooi/id/gemeente/gm7777"><p:naam>Gemeente Grens</p:naam><p:toetredingsDatum>2010-01-01</p:toetredingsDatum></p:deelnemendeOrganisatie>
+      </p:deelnemendeOrganisaties>
+    </p:regeling>
+  </p:gemeenschappelijkeRegelingenGrensoverschrijdend>
+</p:overheidsorganisaties>

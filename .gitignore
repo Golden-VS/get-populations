@@ -32,3 +32,9 @@ logs/
 *.swo
 .DS_Store
 Thumbs.db
+
+# TAM-configuratie (bedrijfsnamen, lokaal)
+tam_config.json
+
+# Lokale secrets (API-key)
+.env

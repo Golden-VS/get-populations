@@ -53,6 +53,12 @@ def write_output(path: Path, *, tam, matches, entities, memberships, unmatched, 
                 df['official_ids'] = df['official_ids'].map(lambda v: '' if v is None else str(v))
             df.to_excel(writer, sheet_name=name, index=False)
             ws = writer.sheets[name]
+            # openpyxl maakt van tekst die met '=' begint een formule; Excel weigert dan het
+            # hele werkboek. Zulke cellen (runlog-koppen, CRM-namen) altijd als tekst schrijven.
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    if cell.data_type == 'f':
+                        cell.data_type = 's'
             ws.freeze_panes = 'A2'
             ws.auto_filter.ref = ws.dimensions
             if 'official_ids' in df.columns:

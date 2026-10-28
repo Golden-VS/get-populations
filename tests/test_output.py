@@ -37,6 +37,22 @@ def test_sheet_order_and_names(tmp_path):
     assert ws.cell(2, col + 1).value == '0001234'
 
 
+def test_text_starting_with_equals_is_not_a_formula(tmp_path):
+    # Excel weigert een werkboek met ongeldige formules ('= Invoer ==' uit de runlog-koppen).
+    f = frames()
+    f['run_log'] = [('== Invoer ==', ''), ('x', '=y')]
+    f['matches'] = pd.DataFrame([['NL-1', 'a1', '=crm naam', 'rule', 'r', 'high']], columns=MATCH_COLS)
+    p = tmp_path / 'o.xlsx'
+    write_output(p, **f)
+    wb = load_workbook(p)
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                assert cell.data_type != 'f', (ws.title, cell.coordinate, cell.value)
+    assert wb['Run log']['A2'].value == '== Invoer =='
+    assert wb['CRM matches']['C2'].value == '=crm naam'
+
+
 def test_only_cooperation_memberships_exported(tmp_path):
     p = tmp_path / 'o.xlsx'
     write_output(p, **frames())

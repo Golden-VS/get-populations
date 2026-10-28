@@ -98,6 +98,67 @@ DETAILED_HELP = {
 _SEGMENT_FILLS = ['DDEBF7', 'E2EFDA', 'FFF2CC', 'FCE4D6', 'EDE7F6']
 
 
+# Tekst van het instructieblad (eerste tabblad), voor de business die het template invult.
+INSTRUCTIONS = [
+    ('TAM-template: zo vul je het in', None),
+    (None, None),
+    ('Wat is dit?', 'Per kernproduct en land leg je vast welke overheidsorganisaties tot de '
+     'TAM (Total Addressable Market) horen. Het programma tam_build.py maakt daar de TAM-lijst '
+     'van en koppelt die aan de CRM-accounts.'),
+    (None, None),
+    ('Tabblad tam_definitions', 'Een rij per kernproduct per land. Vul alleen de rijen in waarvoor '
+     'je een TAM wilt; rijen met een lege kolom segments worden overgeslagen. De kolommen '
+     'company, sales_unit, core_product en country zijn al ingevuld: niet wijzigen.'),
+    ('  segments', 'Verplicht. Een of meer hoofdsegmenten, gescheiden door ; (puntkomma). '
+     'Gebruik de namen uit kolom A van tabblad lists, bijvoorbeeld: '
+     'Local government; Inter-municipal cooperation'),
+    ('  excluded_kinds', 'Optioneel. Soorten organisaties (detailed segments) die binnen die '
+     'segmenten toch NIET meetellen, gescheiden door ;. Gebruik waarden uit kolom B van tabblad '
+     'lists, bijvoorbeeld: City district; Waste management; Recreation authority'),
+    ('  min_population', 'Optioneel. Minimaal aantal inwoners (een heel getal, bv. 10000). '
+     'Organisaties met minder inwoners krijgen status "no - below cutoff"; organisaties zonder '
+     'bekend inwonertal krijgen "unknown - population missing" zodat Power BI zelf kan kiezen. '
+     'Leeg = geen ondergrens.'),
+    ('  notes', 'Optioneel. Vrije tekst; wordt meegenomen naar de uitvoer.'),
+    (None, None),
+    ('Tabblad lists', 'Naslag: een rij per detailed segment, met ernaast het hoofdsegment '
+     'waartoe het hoort, de landen waar het voorkomt en wat eronder valt. Filter kolom A '
+     '(segment) op jouw segment om te zien welke soorten je kunt uitsluiten. Niets invullen.'),
+    (None, None),
+    ('Tabblad match_overrides', 'Handmatige correcties van de CRM-koppeling, alleen als een '
+     'account aan de verkeerde (of geen) organisatie gekoppeld is. Een override wint altijd van '
+     'de regels en de AI en kost geen AI-budget.'),
+    ('  accountid', 'Het CRM-account (te vinden op het blad CRM matches of CRM unmatched van de '
+     'uitvoer).'),
+    ('  entity_id', 'De juiste organisatie (te vinden op het blad Entities van de uitvoer). '
+     'Leeg laten = dit account hoort bij geen enkele organisatie.'),
+    ('  reason', 'Optioneel. Waarom de correctie nodig is.'),
+    (None, None),
+    ('Daarna', 'Sla het bestand op en laat tam_build.py draaien (eerst met --dry-run voor de '
+     'kostenschatting). Onbekende waarden worden gemeld met het rijnummer, voordat er iets '
+     'gedownload of uitgegeven wordt.'),
+]
+
+
+def _instructions_sheet(wb: Workbook) -> None:
+    """(Her)bouw het instructieblad als eerste tabblad en maak het actief."""
+    from openpyxl.styles import Alignment, Font
+
+    if 'instructies' in wb.sheetnames:
+        del wb['instructies']
+    ws = wb.create_sheet('instructies', 0)
+    for left, right in INSTRUCTIONS:
+        ws.append([left, right])
+        row = ws.max_row
+        ws.cell(row, 2).alignment = Alignment(wrap_text=True, vertical='top')
+        ws.cell(row, 1).alignment = Alignment(vertical='top')
+        if left and not left.startswith('  '):
+            ws.cell(row, 1).font = Font(bold=True, size=14 if row == 1 else 11)
+    ws.column_dimensions['A'].width = 26
+    ws.column_dimensions['B'].width = 100
+    wb.active = 0
+
+
 def _lists_sheet(wb: Workbook) -> None:
     """(Her)bouw het hulpblad 'lists': een rij per detailed segment met het segment
     ernaast, de landen en wat eronder valt. Bij --update vervangen zodat nieuwe waarden
@@ -148,6 +209,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
             ws.append(row)
         wb.create_sheet('match_overrides').append(OVERRIDE_COLUMNS)
         _lists_sheet(wb)
+        _instructions_sheet(wb)
         wb.save(path)
         return len(rows)
     wb = load_workbook(path)
@@ -159,6 +221,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
             ws.append(row)
             added += 1
     _lists_sheet(wb)
+    _instructions_sheet(wb)
     wb.save(path)
     return added
 

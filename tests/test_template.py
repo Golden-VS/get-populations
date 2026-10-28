@@ -171,3 +171,26 @@ def test_every_detailed_value_has_help():
     from tam.config import all_detailed
     from tam.template import DETAILED_HELP
     assert set(DETAILED_HELP) == all_detailed()
+
+
+def test_instructions_sheet_first_and_kept_on_update(tmp_path):
+    from openpyxl import load_workbook
+    p = tmp_path / 't.xlsx'
+    products = pd.DataFrame([('Company A', 'Unit 1', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p)
+    wb = load_workbook(p)
+    assert wb.sheetnames[0] == 'instructies'
+    text = ' '.join(str(c) for r in wb['instructies'].iter_rows(values_only=True) for c in r if c)
+    for word in ('tam_definitions', 'segments', 'excluded_kinds', 'min_population', 'lists',
+                 'match_overrides', 'entity_id', 'accountid'):
+        assert word in text
+    # bestaand template zonder instructieblad krijgt het bij --update, maar slechts een keer
+    del wb['instructies']
+    wb.save(p)
+    make_template(products, p, update=True)
+    make_template(products, p, update=True)
+    wb = load_workbook(p)
+    assert wb.sheetnames.count('instructies') == 1 and wb.sheetnames[0] == 'instructies'
+    defs, _ = read_template(p)
+    assert defs == []

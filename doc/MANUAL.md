@@ -452,7 +452,7 @@ sales units is assigned to the sales unit with the most product lines; the
 strays are listed in the run log. The command refuses to overwrite an existing
 template. Next year, use `--make-template --update`: it only appends rows for
 new core products or new countries, leaves everything already filled in
-untouched and refreshes the reference sheet `lists`.
+untouched and refreshes the reference sheet `lists` and the first tab `instructies` (a short Dutch guide for the business on filling in `tam_definitions`, using `lists` and correcting matches in `match_overrides`).
 
 ### Step B: the business fills `tam_definitions`
 

@@ -568,15 +568,15 @@ Five extra countries, each with its own template rows and its own TAM:
 
 | Country | Entities | Population |
 |---|---|---|
-| `AW` Aruba, `CW` Curacao, `SX` Sint Maarten | The country government (`Country government (Caribbean)`) and each ministry (`Ministry`) | Country total for all of them, from the national statistics office (Aruba: empty, see below) |
+| `AW` Aruba, `CW` Curacao, `SX` Sint Maarten | The country government (`Country government (Caribbean)`) and each ministry (`Ministry`) | Country total for all of them, from the national statistics office (Aruba: CBS Netherlands figure, see below) |
 | `BQ` Caribbean Netherlands | The three island authorities Bonaire, Sint Eustatius, Saba (`Island authority`), the Rijksdienst Caribisch Nederland and the national bodies from the Dutch organisation register located on the islands (for example the chambers of commerce) (`National agency`) | Islands: CBS (1 January); national agencies: sum of the islands |
 | `SR` Suriname | The government of the Republic (`National agency`), each ministry (`Ministry`) and the 10 districts (`District administration`, a new detailed segment under Local government) | Districts: ABS census 2012, the latest official district figures; government and ministries: sum of the districts |
 
 All rows come from hand tables in `tam/hand_tables_carib.py` with a fixed
 `entity_id` (for example `CW-HAND-MIN-JUSTITIE`, `SR-HAND-DISTRICT-WANICA`), a
 source URL and a date per row. Ministries change with each cabinet: check the
-lists against the government sites in the yearly run. Aruba has no population
-because the CBS Aruba site cannot be read automatically; the run log flags it.
+lists against the government sites in the yearly run. Aruba's population (108,400, end of 2024)
+comes from CBS Netherlands, because the CBS Aruba site cannot be read automatically.
 Fill it in by hand in the hand table when a figure is available.
 
 CRM accounts: step 1 already tags Aruba, Curacao, Sint Maarten and Caribbean
@@ -639,7 +639,7 @@ These are visible in the `Run log`; none stops the run.
 - **Belgian police zones**: 552 of 565 municipalities are covered by a police
   zone (the German-speaking community and a few others are missing in the
   source table).
-- **Population unknown**: Aruba (and so its ministries), the Walloon-Brussels Federation,
+- **Population unknown**: the Walloon-Brussels Federation,
   Walloon and Brussels intercommunales (no member lists), most German
   Zweckverbaende and 28 of 30 IT Zweckverbaende. They appear with
   `population_method = unknown`.

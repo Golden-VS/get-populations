@@ -242,10 +242,11 @@ real run with `--refresh-cache` -> review low-confidence matches and
   country Suriname become SR (also UNKNOWN/empty detected_country). National
   bodies of the NL organisation register located on Bonaire, Sint Eustatius or
   Saba (both chambers of commerce today) move to BQ as `bq_rijksdienst`
-  (`BQ-OO-<systeemId>`). Aruba population still empty (CBS Aruba site not
-  machine-readable); ministries change per cabinet, recheck yearly.
+  (`BQ-OO-<systeemId>`). Aruba population 108,400 (end 2024, CBS Netherlands article, at the
+  user's instruction; CBS Aruba site not machine-readable); ministries change
+  per cabinet, recheck yearly.
 - Known data limitations (also in MANUAL): 552 of 565 BE municipalities
-  covered by a police zone (DG gap), Aruba (and its ministries)/FWB population
+  covered by a police zone (DG gap), FWB population
   unknown, Suriname districts on the 2012 census, 28 Saxon
   VGs as Verband fallback, most IT Zweckverbaende and all other Zweckverbaende
   population unknown, KVJS and Bezirksverband Pfalz member sets cited from

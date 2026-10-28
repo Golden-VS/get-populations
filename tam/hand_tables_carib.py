@@ -14,7 +14,6 @@ raadpleegdatum.
 CONSULTED = '2026-10-28'
 
 AW_MINISTRIES_URL = 'https://www.gobierno.aw/nl/ministeries'
-CBS_AW_URL = 'https://cbs.aw/wp/index.php/population/'
 CW_MINISTRIES_URL = 'https://gobiernu.cw/nl/ministeries/'
 CW_MINISTERIONAN_URL = 'https://gobiernu.cw/ministerionan/'
 CBS_CW_URL = 'https://www.cbs.cw/population'
@@ -40,13 +39,14 @@ def _min(country, kind, url, rows):
 # ---------------------------------------------------------------------------
 # Aruba
 # ---------------------------------------------------------------------------
-# Bevolking: CBS Aruba (cbs.aw) is niet automatisch te lezen (botcontrole). Het CBS
-# (Nederland) noemt in 'De Nederlandse Caraiben vijftien jaar na de staatskundige hervorming'
-# (2025) alleen een afgerond cijfer (108,4 duizend, eind 2024); dat is geen exact officieel
-# cijfer en wordt niet gebruikt. Bevolking dus leeg: handmatig aanvullen vanaf de bron_url.
+# Bevolking: CBS Aruba (cbs.aw) is niet automatisch te lezen (botcontrole). Op aanwijzing van
+# de gebruiker (2026-10-28) het CBS-cijfer uit 'Bevolking Nederlandse Caraiben in vijftien jaar
+# gegroeid' (2025): 108,4 duizend inwoners eind 2024 (afgerond op honderdtallen).
+AW_POP_URL = ('https://www.cbs.nl/nl-nl/achtergrond/2025/47/'
+              'bevolking-nederlandse-caraiben-in-vijftien-jaar-gegroeid')
 AW_LAND = {
-    'Aruba': {'id': 'AW-HAND-ARUBA', 'country': 'AW', 'kind': 'carib_land', 'population': None,
-              'peildatum': CONSULTED, 'bron_url': CBS_AW_URL,
+    'Aruba': {'id': 'AW-HAND-ARUBA', 'country': 'AW', 'kind': 'carib_land', 'population': 108400,
+              'peildatum': '2024-12-31', 'bron_url': AW_POP_URL,
               'aliases': ['Land Aruba']},
 }
 # Ministeries zoals op gobierno.aw/nl/ministeries (8)

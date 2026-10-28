@@ -413,8 +413,9 @@ classifications. If you ever want to force a complete re-classification
 
 Step 2 answers "how many inhabitants does this CRM account serve?". The TAM
 tool answers the opposite question: **which governmental organisations exist
-at all** in NL, BE and DE, how large are they, and which of them are already
-customers? It builds a master list of all relevant bodies (municipalities,
+at all** in NL, BE and DE, the Dutch-speaking Caribbean (Aruba, Curacao, Sint
+Maarten, Caribbean Netherlands) and Suriname, how large are they, and which of
+them are already customers? It builds a master list of all relevant bodies (municipalities,
 provinces, states, districts, water authorities, safety regions, police zones,
 inter-municipal cooperations and so on) from official registers, matches the
 CRM accounts to that list, and writes one Excel file that Power BI uses to
@@ -445,11 +446,13 @@ venv/bin/python tam_build.py --make-template
 ```
 
 This writes `tam_template.xlsx` with sheet `tam_definitions`: one row per core
-product and country (NL, BE, DE). A core product that appears under several
+product and country (NL, BE, DE, AW, CW, SX, BQ, SR; see "Caribbean and
+Suriname" below). A core product that appears under several
 sales units is assigned to the sales unit with the most product lines; the
 strays are listed in the run log. The command refuses to overwrite an existing
 template. Next year, use `--make-template --update`: it only appends rows for
-new core products and leaves everything already filled in untouched.
+new core products or new countries, leaves everything already filled in
+untouched and refreshes the reference sheet `lists`.
 
 ### Step B: the business fills `tam_definitions`
 
@@ -531,7 +534,7 @@ The result is `tam_<date>.xlsx` (gitignored) with these sheets:
 | `CRM matches` | One row per matched account: `entity_id`, `accountid`, CRM name, `match_pass`, `match_reason`, `confidence` | Join revenue per `accountid` to `entity_id`, then to `TAM` (black space) |
 | `Entities` | The full master list with all attributes (kind, region, ids, population method, source and date) | Audit, optional dimension table |
 | `Memberships` | Cooperation `entity_id` -> member `entity_id`, with the cooperation's `detailed_segment` and join date | Members of a paying cooperation count as covered |
-| `CRM unmatched` | Governmental or unknown CRM accounts in NL/BE/DE without an entity, with best candidate and why it was rejected. Accounts abroad that step 1b marked Governmental appear with reason "land buiten scope" | Spot paying customers that are missing in the TAM |
+| `CRM unmatched` | Governmental or unknown CRM accounts in a TAM country without an entity, with best candidate and why it was rejected. Accounts abroad that step 1b marked Governmental appear with reason "land buiten scope" | Spot paying customers that are missing in the TAM |
 | `Run log` | Inputs (including the modification date of the CRM file), per-source status and dates, counts per country and kind, counts per `in_tam` status, population-unknown counts, AI calls and cache hits, product strays, new segment values, open points, and warnings (including source-level warnings from the register loaders) | Check after every run |
 
 **`in_tam` values**
@@ -558,6 +561,30 @@ as covered). The sheet carries the cooperation's `detailed_segment`, so Power
 BI decides which kinds of cooperation make their members covered (for example
 only shared service and IT cooperations). Cooperations of cooperations are not
 chained.
+
+### Caribbean and Suriname
+
+Five extra countries, each with its own template rows and its own TAM:
+
+| Country | Entities | Population |
+|---|---|---|
+| `AW` Aruba, `CW` Curacao, `SX` Sint Maarten | The country government (`Country government (Caribbean)`) and each ministry (`Ministry`) | Country total for all of them, from the national statistics office (Aruba: empty, see below) |
+| `BQ` Caribbean Netherlands | The three island authorities Bonaire, Sint Eustatius, Saba (`Island authority`) and the Rijksdienst Caribisch Nederland (`National agency`) | Islands: CBS (1 January); Rijksdienst: sum of the islands |
+| `SR` Suriname | The government of the Republic (`National agency`), each ministry (`Ministry`) and the 10 districts (`District administration`, a new detailed segment under Local government) | Districts: ABS census 2012, the latest official district figures; government and ministries: sum of the districts |
+
+All rows come from hand tables in `tam/hand_tables_carib.py` with a fixed
+`entity_id` (for example `CW-HAND-MIN-JUSTITIE`, `SR-HAND-DISTRICT-WANICA`), a
+source URL and a date per row. Ministries change with each cabinet: check the
+lists against the government sites in the yearly run. Aruba has no population
+because the CBS Aruba site cannot be read automatically; the run log flags it.
+Fill it in by hand in the hand table when a figure is available.
+
+CRM accounts: step 1 already tags Aruba, Curacao, Sint Maarten and Caribbean
+Netherlands; they now count toward their own country (no longer NL). Step 1
+does not know Suriname: accounts it marks as abroad (`OTHER`) whose address
+country is Suriname are put in scope as `SR`. Accounts typed `land` or
+`ministerie` by step 1 can match a country government, ministry, Rijksdienst
+or island authority of their own country by name; the rest go to the AI step.
 
 ### Reviewing the matches
 
@@ -608,7 +635,7 @@ These are visible in the `Run log`; none stops the run.
 - **Belgian police zones**: 552 of 565 municipalities are covered by a police
   zone (the German-speaking community and a few others are missing in the
   source table).
-- **Population unknown**: Aruba and the Walloon-Brussels Federation,
+- **Population unknown**: Aruba (and so its ministries), the Walloon-Brussels Federation,
   Walloon and Brussels intercommunales (no member lists), most German
   Zweckverbaende and 28 of 30 IT Zweckverbaende. They appear with
   `population_method = unknown`.
@@ -635,6 +662,12 @@ These are visible in the `Run log`; none stops the run.
   the Flemish portal carries it.
 - A KvK/KBO number shared by several entities is never used for a rule match;
   those accounts go to name matching.
+- **Suriname district populations are from the 2012 census**: the 2024-2025
+  census had no published results yet. Update the hand table when ABS
+  publishes them.
+- **Caribbean bodies in the Dutch register stay NL**: the two chambers of
+  commerce of Bonaire and of Sint Eustatius and Saba are listed in the Dutch
+  organisation register as national agencies and stay in the NL TAM.
 
 ---
 

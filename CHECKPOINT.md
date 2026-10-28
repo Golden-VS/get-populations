@@ -1,7 +1,7 @@
 # CRM Population Enrichment - Project Checkpoint
 
 > Handoff document for continuing this project in a fresh Claude Code session.
-> Last updated: 2026-10-27
+> Last updated: 2026-10-28
 
 ---
 
@@ -201,7 +201,8 @@ Run `git log --oneline` for the complete list.
 differs). Operator runbook: MANUAL section 7.
 
 **What it is**: `tam_build.py` builds a master list of all governmental bodies
-in NL/BE/DE from official registers, matches CRM accounts to it (rules first,
+in NL/BE/DE from official registers, plus hand tables for AW/CW/SX/BQ/SR (spec
+section 15), matches CRM accounts to it (rules first,
 Claude for the rest), and writes `tam_<date>.xlsx` (sheets TAM, CRM matches,
 Entities, Memberships, CRM unmatched, Run log) for Power BI white/black space.
 
@@ -228,8 +229,21 @@ real run with `--refresh-cache` -> review low-confidence matches and
   (classify cache gained `input_hash`, so the next real run reclassifies all
   cooperations once, roughly $1-3), worst-case cost-cap check, template
   duplicate check, `notes` column, run-log open points and loader warnings.
+- Dutch Caribbean and Suriname (2026-10-28, spec section 15): new countries
+  AW, CW, SX, BQ, SR with their own template rows (`--make-template --update`
+  adds them; done on the local template). Hand tables in
+  `tam/hand_tables_carib.py`, loader `carib_sr` (`tam/sources/carib.py`). The
+  six former NL Caribbean hand rows moved (ids now `AW-HAND-ARUBA`,
+  `BQ-HAND-BONAIRE`, ...). Kinds `carib_land`, `carib_ministerie`,
+  `bq_openbaar_lichaam`, `bq_rijksdienst`, `sr_regering`, `sr_ministerie`,
+  `sr_district` (new detailed segment `District administration`). Country
+  totals: AW/CW/SX country row, BQ islands sum, SR districts sum (ABS census
+  2012). CRM: AW/CW/SX/BQ map to themselves; OTHER accounts with address
+  country Suriname become SR. Aruba population still empty (CBS Aruba site not
+  machine-readable); ministries change per cabinet, recheck yearly.
 - Known data limitations (also in MANUAL): 552 of 565 BE municipalities
-  covered by a police zone (DG gap), Aruba/FWB population unknown, 28 Saxon
+  covered by a police zone (DG gap), Aruba (and its ministries)/FWB population
+  unknown, Suriname districts on the 2012 census, 28 Saxon
   VGs as Verband fallback, most IT Zweckverbaende and all other Zweckverbaende
   population unknown, KVJS and Bezirksverband Pfalz member sets cited from
   secondary sources, sparse predecessor aliases for Wallonia/DE (Flemish

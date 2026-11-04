@@ -1,7 +1,7 @@
 # CRM Population Enrichment - Project Checkpoint
 
 > Handoff document for continuing this project in a fresh Claude Code session.
-> Last updated: 2026-10-28
+> Last updated: 2026-11-04
 
 ---
 
@@ -195,10 +195,42 @@ Run `git log --oneline` for the complete list.
 
 ## TAM / whitespace feature (added 2026-10-27)
 
-**Status**: implemented on branch `feature/tam-whitespace` (not yet merged to
-`main`; merge after the first real run is reviewed). Spec:
-`doc/specs/2026-10-26-tam-whitespace-design.md` (section 14 wins where it
-differs). Operator runbook: MANUAL section 7.
+**Status (2026-11-04)**: DONE and merged to `main` (branch
+`feature/tam-whitespace` merged 2026-10-28; still exists locally and on GitHub,
+can be deleted). 279 tests green (`venv/bin/pytest -q -W error::FutureWarning`).
+Spec: `doc/specs/2026-10-26-tam-whitespace-design.md` (sections 14 and 15 win
+where they differ); plan `doc/plans/2026-10-27-tam-whitespace.md`. Operator
+runbook: MANUAL section 7. Board/business explainer (2 pages, generic):
+`doc/TAM_WHITESPACE_OVERVIEW.pdf` (regenerate with
+`tools/make_tam_overview_pdf.py`).
+
+**Where we are / next step**: the template `tam_template.xlsx` (local,
+gitignored, 224 rows = 28 core products x 8 countries, sorted by company,
+sales_unit, core_product, country) has only one filled row (first case:
+the JCC-type appointment product, NL, `Local government; Inter-municipal
+cooperation`, excluded kinds City district / Waste / Recreation / Environmental
+agency / Procurement / Social employment, min 10,000 -> 529 organisations in
+the TAM). The user hands the template to the business to fill in; when it
+comes back: save it as `tam_template.xlsx` in the repo root, run
+`venv/bin/python tam_build.py --template tam_template.xlsx --dry-run` (check
+template errors + AI estimate), then the real run (add `--refresh-cache` for
+the yearly refresh), then review: low-confidence `CRM matches`, `CRM unmatched`
+filtered on `crm_segment_category` Governmental/Unknown, corrections via the
+template's `match_overrides`. Latest output: `tam_2026-10-28.xlsx` (local).
+Power BI (factors per detailed_segment, ARPU per inhabitant, membership
+coverage, churn phase 2) is built by the user's BI side, outside this repo.
+
+**Changes after the merge (2026-10-28 .. 11-04, all on main)**: Excel fix
+(text starting with '=' was written as a formula; `a5856b4`), Aruba population
+108,400 (`2c7f74d`), `instructies` first tab in template and output (Dutch),
+`lists` tab = one row per detailed segment with segment / countries /
+description + code/name table, column widths fit 80% of values
+(`tam/xlsx_util.py`), `CRM unmatched` reason renamed to "geen
+overheidsorganisatie met gelijkende naam" + `crm_segment` /
+`crm_segment_category` columns, readable `country_name` next to every country
+code (code stays the key), template keeps Excel tables in sync and never
+writes overlapping column widths (`9c75b6a`), template rows sorted
+(`44abcfd`), CBS edition fallback (`c83337a`, see open item 0).
 
 **What it is**: `tam_build.py` builds a master list of all governmental bodies
 in NL/BE/DE from official registers, plus hand tables for AW/CW/SX/BQ/SR (spec
@@ -220,8 +252,13 @@ real run with `--refresh-cache` -> review low-confidence matches and
 **Open points**
 - The OP (Flemish organisation portal) dump licence is unverified; check
   before relying on it commercially.
-- First real run on `input_crm_27-10-2026.csv` still to be reviewed with the
-  user (steps 1 and 1b were already re-run on it).
+- Real runs done on `input_crm_27-10-2026.csv` (steps 1 and 1b re-run on it;
+  old intermediates and earlier outputs in `backup_2026-06/`). AI spend so
+  far under $4 in total; caches in `reference/tam/` make reruns ~$0.
+- Germany: 10,747 Gemeinden = 4,064 own entities + 104 kreisfreie Staedte + 3
+  city-states + 6,576 Verband members kept as aliases (user rule: own staff),
+  population counted via their Verband/Kreis/Land. Offered (not yet decided):
+  an output sheet listing those 6,576 member Gemeinden for traceability.
 - Final fix wave (2026-10-27, after the first real run): DE pass-1 narrowing
   needs a close postcode, no name rule without a compatible type, BE
   predecessor aliases from the OP dump, stale-cache fallback for failed

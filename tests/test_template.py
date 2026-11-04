@@ -246,3 +246,39 @@ def test_update_adds_country_name_to_old_template(tmp_path):
     assert df['country_name'].notna().all()
     defs, _ = read_template(p)
     assert len(defs) == 1 and defs[0].country == 'NL' and defs[0].min_population == 10000
+
+
+def test_update_keeps_excel_table_in_sync_and_widths_valid(tmp_path):
+    # Zo ging het mis (2026-11-04): tam_definitions opgemaakt als Excel-tabel over A:H; na het
+    # invoegen van country_name klopte de tabeldefinitie niet meer en weigerde Excel het bestand.
+    from openpyxl import Workbook, load_workbook
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    p = tmp_path / 't.xlsx'
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'tam_definitions'
+    ws.append(['company', 'sales_unit', 'core_product', 'country', 'segments', 'excluded_kinds',
+               'min_population', 'notes'])
+    ws.append(['Company A', 'Unit 1', 'Product X', 'NL', 'Local government', None, 10000, 'hi'])
+    t = Table(displayName='Table1', ref='A1:H2')
+    t.tableStyleInfo = TableStyleInfo(name='TableStyleLight9', showRowStripes=True)
+    ws.add_table(t)
+    ws.column_dimensions.group('A', 'B', hidden=False)   # Excel bewaart A:B als een blok
+    wb.create_sheet('match_overrides').append(['accountid', 'entity_id', 'reason'])
+    wb.save(p)
+    products = pd.DataFrame([('Company A', 'Unit 1', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p, update=True)
+    wb = load_workbook(p)
+    ws = wb['tam_definitions']
+    header = [c.value for c in ws[1]]
+    table = ws.tables['Table1']
+    assert table.ref == f'A1:I{ws.max_row}'
+    assert [c.name for c in table.tableColumns] == header
+    assert table.autoFilter.ref == table.ref
+    for sheet in wb.worksheets:
+        spans = sorted((d.min, d.max) for d in sheet.column_dimensions.values() if d.min)
+        for (a1, b1), (a2, b2) in zip(spans, spans[1:]):
+            assert b1 < a2, (sheet.title, spans)
+    defs, _ = read_template(p)
+    assert len(defs) == 1 and defs[0].min_population == 10000

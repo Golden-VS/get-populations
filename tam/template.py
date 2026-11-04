@@ -7,7 +7,7 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 
 from tam.config import COUNTRIES, COUNTRY_NAMES, DETAILED_SEGMENTS, SEGMENTS, all_detailed
-from tam.xlsx_util import autofit_columns, write_instructions
+from tam.xlsx_util import autofit_columns, sync_tables, write_instructions
 
 DEF_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'country_name', 'segments',
                'excluded_kinds', 'min_population', 'notes']
@@ -148,9 +148,11 @@ def _instructions_sheet(wb: Workbook) -> None:
 
 
 def _fit_columns(wb: Workbook) -> None:
-    """Kolombreedtes zo dat 80% van de waarden past (instructieblad heeft vaste breedtes)."""
+    """Kolombreedtes zo dat 80% van de waarden past (instructieblad heeft vaste breedtes);
+    eventuele Excel-tabellen meteen gelijktrekken met het blad."""
     for ws in wb.worksheets:
         if ws.title != 'instructies':
+            sync_tables(ws)
             autofit_columns(ws)
 
 

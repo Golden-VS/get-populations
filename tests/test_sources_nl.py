@@ -57,6 +57,21 @@ def test_load_nl_cbs_from_cache_offline(tmp_path):
     assert b.status[0].ok and b.status[0].name == 'nl_cbs'
 
 
+def test_newest_cbs_edition_without_population_falls_back(tmp_path, caplog):
+    # CBS publiceert de nieuwe editie eerst zonder inwonertallen (gezien op 2026-11-04).
+    empty = [dict(r, Inwonertal_56=None) for r in RECORDS]
+    (tmp_path / 'nl_cbs_2027_86438NED_props.json').write_text(json.dumps({'value': PROPS}))
+    (tmp_path / 'nl_cbs_2027_86438NED_typed.json').write_text(json.dumps({'value': empty}))
+    (tmp_path / 'nl_cbs_2026_86247NED_props.json').write_text(json.dumps({'value': PROPS}))
+    (tmp_path / 'nl_cbs_2026_86247NED_typed.json').write_text(json.dumps({'value': RECORDS}))
+    b = load_nl_cbs(SourceCache(offline=True, base_dir=tmp_path))
+    assert b.extras['municipal_population'] == {'NL-GM-GM0014': 235287, 'NL-GM-GM1680': 25400}
+    assert b.status[0].ok and '86247NED' in b.status[0].message and '86438NED' in b.status[0].message
+    assert any('86438NED' in r.message and 'inwonertal' in r.message.lower() for r in caplog.records)
+    # de lege editie wordt uit de cache gehaald, zodat een latere run de gevulde versie ophaalt
+    assert not (tmp_path / 'nl_cbs_2027_86438NED_typed.json').exists()
+
+
 def test_load_nl_cbs_offline_without_cache_reports_failure(tmp_path):
     b = load_nl_cbs(SourceCache(offline=True, base_dir=tmp_path))
     assert not b.status[0].ok and len(b.entities) == 0

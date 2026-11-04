@@ -267,6 +267,14 @@ real run with `--refresh-cache` -> review low-confidence matches and
 
 All "broken source" items are RESOLVED. Remaining:
 
+0. **Urgent before the next population run (step 2): CBS 2027 edition has no
+   populations yet.** On 2026-11-04 CBS published 'Gebieden in Nederland 2027'
+   (86438NED) without Inwonertal values. `step2_enrich.discover_cbs_gebieden_table`
+   always takes the newest edition, so a `--refresh-cache` run of step 2 would
+   load empty NL populations. The TAM tool already falls back to the newest
+   edition with populations (`tam/sources/nl.py`, `MIN_POPULATION_SHARE`); port
+   the same rule to step 2 (or reuse `tam.sources.nl._editions`).
+
 1. **Final review of `final_enriched.xlsx`** with the user (the run works; was
    iterating on individual "geen match" cases - Zottegem, Zwijndrecht - which
    are now fixed). Suggested: after a clean run, the user filters `proces` on

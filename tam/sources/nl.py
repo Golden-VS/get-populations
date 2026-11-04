@@ -1,7 +1,7 @@
 """Nederlandse bronnen voor de TAM/whitespace-lijstbouwer: CBS gemeenten en provincies.
 
 CBS OData-tabel 'Gebieden in Nederland' (editie 2026 = 86247NED). Het tabel-id wisselt
-jaarlijks; de nieuwste editie wordt gezocht met step2_enrich.discover_cbs_gebieden_table.
+jaarlijks; de nieuwste editie met inwonertallen wordt gebruikt (zie _editions en MIN_POPULATION_SHARE).
 Offline (of als de catalogus onbereikbaar is) wordt de nieuwste gecachte editie
 hergebruikt (bestanden reference/tam/nl_cbs_<jaar>_<tabelid>_{typed,props}.json).
 
@@ -65,8 +65,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from step2_enrich import (CBS_ODATA_URL, NL_STADSDEEL_INWONERS, NL_WATERSCHAP_INWONERS,
-                          discover_cbs_gebieden_table, normalize)
+import requests
+
+from step2_enrich import (CBS_CATALOG_URL, CBS_ODATA_URL, NL_STADSDEEL_INWONERS,
+                          NL_WATERSCHAP_INWONERS, normalize)
 from tam import hand_tables
 from tam.config import USER_AGENT
 from tam.entities import (ALIAS_COLUMNS, SourceBundle, SourceStatus, hand_entity, make_entity_id,
@@ -135,41 +137,85 @@ def parse_cbs_gebieden(records: list[dict], keys: dict) -> pd.DataFrame:
     return df
 
 
-def _cached_edition(cache: SourceCache):
-    """Nieuwste gecachte editie (jaar, tabelid) uit bestandsnamen, of None."""
-    best = None
+def _cached_editions(cache: SourceCache) -> list[tuple[str, int]]:
+    """Gecachte edities [(tabelid, jaar)], nieuwste eerst, uit de bestandsnamen."""
+    found = set()
     for p in cache.base_dir.glob('nl_cbs_*_typed.json'):
         m = re.fullmatch(r'nl_cbs_(\d{4})_(\w+)_typed\.json', p.name)
-        if m and (best is None or (int(m[1]), m[2]) > best):
-            best = (int(m[1]), m[2])
-    return (best[1], best[0]) if best else None
+        if m:
+            found.add((int(m[1]), m[2]))
+    return [(tid, year) for year, tid in sorted(found, reverse=True)]
 
 
-def _resolve_table(cache: SourceCache):
-    """(tabelid, jaar): live via de catalogus; offline of bij falen de nieuwste cache."""
+def _catalog_editions() -> list[tuple[str, int]]:
+    """Alle edities van 'Gebieden in Nederland' uit de CBS-catalogus, nieuwste eerst."""
+    r = requests.get(CBS_CATALOG_URL, params={
+        '$format': 'json', '$filter': "substringof('gebieden in nederland',tolower(Title))",
+    }, headers={'User-Agent': USER_AGENT}, timeout=60)
+    r.raise_for_status()
+    found = set()
+    for t in r.json().get('value', []):
+        m = re.search(r'(\d{4})', t.get('Title', ''))
+        if m:
+            found.add((int(m.group(1)), t['Identifier']))
+    if not found:
+        raise RuntimeError("geen 'Gebieden in Nederland'-tabel in CBS-catalogus")
+    return [(tid, year) for year, tid in sorted(found, reverse=True)]
+
+
+def _editions(cache: SourceCache) -> list[tuple[str, int]]:
+    """Kandidaat-edities, nieuwste eerst: live via de catalogus; offline of bij falen de cache."""
     if not cache.offline:
         try:
-            return discover_cbs_gebieden_table(USER_AGENT)
+            return _catalog_editions()
         except Exception as e:  # noqa: BLE001
             log.warning('CBS-catalogus onbereikbaar (%s); probeer cache', e)
-    edition = _cached_edition(cache)
-    if edition is None:
+    editions = _cached_editions(cache)
+    if not editions:
         raise FileNotFoundError('Geen CBS-tabel in cache en catalogus niet beschikbaar')
-    return edition
+    return editions
+
+
+# Een editie telt pas als (bijna) alle gemeenten een inwonertal hebben. Het CBS publiceert een
+# nieuwe editie eerst zonder inwonertallen (gezien 2026-11-04 bij 86438NED, indeling 2027).
+MIN_POPULATION_SHARE = 0.9
+MAX_EDITIONS_TRIED = 3
+
+
+def _load_edition(cache: SourceCache, table_id: str, year: int) -> pd.DataFrame:
+    base = f'nl_cbs_{year}_{table_id}'
+    props_path = cache.fetch(f'{base}_props', f'{CBS_ODATA_URL}/{table_id}/DataProperties',
+                             params={'$format': 'json'}, suffix='.json')
+    typed_path = cache.fetch(f'{base}_typed', f'{CBS_ODATA_URL}/{table_id}/TypedDataSet',
+                             params={'$format': 'json'}, suffix='.json')
+    keys = resolve_cbs_keys(json.loads(props_path.read_text(encoding='utf-8'))['value'])
+    records = json.loads(typed_path.read_text(encoding='utf-8'))['value']
+    return parse_cbs_gebieden(records, keys)
+
+
+def _drop_cached_edition(cache: SourceCache, table_id: str, year: int) -> None:
+    for part in ('props', 'typed'):
+        (cache.base_dir / f'nl_cbs_{year}_{table_id}_{part}.json').unlink(missing_ok=True)
 
 
 def load_nl_cbs(cache: SourceCache) -> SourceBundle:
     bundle = SourceBundle.empty()
+    skipped: list[str] = []
+    df = None
     try:
-        table_id, year = _resolve_table(cache)
-        base = f'nl_cbs_{year}_{table_id}'
-        props_path = cache.fetch(f'{base}_props', f'{CBS_ODATA_URL}/{table_id}/DataProperties',
-                                 params={'$format': 'json'}, suffix='.json')
-        typed_path = cache.fetch(f'{base}_typed', f'{CBS_ODATA_URL}/{table_id}/TypedDataSet',
-                                 params={'$format': 'json'}, suffix='.json')
-        keys = resolve_cbs_keys(json.loads(props_path.read_text(encoding='utf-8'))['value'])
-        records = json.loads(typed_path.read_text(encoding='utf-8'))['value']
-        df = parse_cbs_gebieden(records, keys)
+        for table_id, year in _editions(cache)[:MAX_EDITIONS_TRIED]:
+            candidate = _load_edition(cache, table_id, year)
+            share = candidate['population'].notna().mean() if len(candidate) else 0.0
+            if share >= MIN_POPULATION_SHARE:
+                df = candidate
+                break
+            log.warning('CBS %s (%d): inwonertal voor %.0f%% van de gemeenten; editie nog niet '
+                        'compleet, val terug op de vorige editie', table_id, year, share * 100)
+            skipped.append(f'{table_id} ({year})')
+            _drop_cached_edition(cache, table_id, year)   # later opnieuw ophalen
+        if df is None:
+            raise RuntimeError('geen CBS-editie met inwonertallen gevonden; overgeslagen: '
+                               + ', '.join(skipped))
     except Exception as e:  # noqa: BLE001
         log.error('CBS gemeenten/provincies mislukt: %s', e)
         bundle.status.append(SourceStatus('nl_cbs', False, 0, '', f'mislukt: {e}'))
@@ -210,8 +256,10 @@ def load_nl_cbs(cache: SourceCache) -> SourceBundle:
     bundle.entities = pd.DataFrame(rows, columns=bundle.entities.columns)
     bundle.memberships = pd.DataFrame(members, columns=bundle.memberships.columns)
     bundle.extras['municipal_population'] = muni_pop
-    bundle.status.append(SourceStatus('nl_cbs', True, len(rows), source_date,
-                                      f'{len(df)} gemeenten, {df["pv_code"].nunique()} provincies'))
+    note = f'{len(df)} gemeenten, {df["pv_code"].nunique()} provincies, CBS {table_id}'
+    if skipped:
+        note += '; nieuwere editie zonder inwonertallen overgeslagen: ' + ', '.join(skipped)
+    bundle.status.append(SourceStatus('nl_cbs', True, len(rows), source_date, note))
     return bundle
 
 

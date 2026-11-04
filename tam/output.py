@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from tam.config import REFERENCE_DIR
+from tam.config import COUNTRY_NAMES, REFERENCE_DIR
 from tam.xlsx_util import autofit_columns, write_instructions
 
 log = logging.getLogger(__name__)
@@ -17,6 +17,10 @@ OUTPUT_INSTRUCTIONS = [
     (None, None),
     ('Wat is dit?', 'De TAM-lijst per kernproduct en land, gemaakt door tam_build.py uit het '
      'ingevulde template, met de koppeling naar de CRM-accounts. Bedoeld om in Power BI te laden.'),
+    (None, None),
+    ('Landen', 'Elk blad heeft naast de landcode (country, NL/BE/DE/AW/CW/SX/BQ/SR) een kolom '
+     'country_name met de leesbare naam, bv. BQ = Caribisch Nederland (Bonaire, Sint Eustatius, '
+     'Saba). Gebruik in Power BI de code om te koppelen en de naam om te tonen.'),
     (None, None),
     ('Blad TAM', 'Een rij per kernproduct x land x organisatie in de gekozen segmenten.'),
     ('  in_tam', 'yes = hoort bij de TAM; no - below cutoff = minder inwoners dan '
@@ -83,6 +87,15 @@ def check_known_detailed(values: set, path: Path = REFERENCE_DIR / 'known_detail
     return new
 
 
+def _with_country_name(df: pd.DataFrame) -> pd.DataFrame:
+    """Zet een leesbare landnaam direct na de landcode (country of tam_country)."""
+    for col in ('country', 'tam_country'):
+        if col in df.columns and 'country_name' not in df.columns:
+            names = df[col].map(lambda c: COUNTRY_NAMES.get(str(c), '') if pd.notna(c) else '')
+            df.insert(list(df.columns).index(col) + 1, 'country_name', names)
+    return df
+
+
 def _memberships_sheet(memberships: pd.DataFrame, entities: pd.DataFrame) -> pd.DataFrame:
     coop = memberships[memberships['membership_type'] == 'cooperation'].copy()
     seg = dict(zip(entities['entity_id'], entities['detailed_segment']))
@@ -104,7 +117,7 @@ def write_output(path: Path, *, tam, matches, entities, memberships, unmatched, 
     }
     with pd.ExcelWriter(path, engine='openpyxl') as writer:
         for name in SHEETS:
-            df = sheets[name].copy()
+            df = _with_country_name(sheets[name].copy())
             if 'official_ids' in df.columns:
                 df['official_ids'] = df['official_ids'].map(lambda v: '' if v is None else str(v))
             df.to_excel(writer, sheet_name=name, index=False)

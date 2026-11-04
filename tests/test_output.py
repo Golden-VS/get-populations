@@ -137,3 +137,23 @@ def test_output_has_instructions_first_and_fitted_widths(tmp_path):
     col = [c.value for c in ws[1]].index('official_ids')
     from openpyxl.utils import get_column_letter
     assert ws.column_dimensions[get_column_letter(col + 1)].width >= len('official_ids')
+
+
+
+def test_country_name_next_to_country_in_output(tmp_path):
+    f = frames()
+    f['tam'] = pd.DataFrame([['C', 'S', 'P', 'NL', 'NL-1', 'A', 'Municipality', 100, 'yes', '', 0, '']],
+                            columns=TAM_ROW_COLUMNS)
+    f['unmatched'] = pd.DataFrame([['a1', 'x', 'BQ', '', None, 'r']], columns=UNM_COLS)
+    p = tmp_path / 'o.xlsx'
+    write_output(p, **f)
+    tam = pd.read_excel(p, sheet_name='TAM')
+    cols = list(tam.columns)
+    assert cols[cols.index('country') + 1] == 'country_name' and tam.at[0, 'country_name'] == 'Nederland'
+    ents = pd.read_excel(p, sheet_name='Entities')
+    cols = list(ents.columns)
+    assert cols[cols.index('country') + 1] == 'country_name'
+    unm = pd.read_excel(p, sheet_name='CRM unmatched')
+    cols = list(unm.columns)
+    assert cols[cols.index('tam_country') + 1] == 'country_name'
+    assert unm.at[0, 'country_name'].startswith('Caribisch Nederland')

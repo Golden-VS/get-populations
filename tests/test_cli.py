@@ -74,8 +74,9 @@ def _template(tmp_path, *, fill=True, bad=False, overrides=()):
     ws = wb['tam_definitions']
     if fill:
         # rij 2 = Company A / Product X / NL
-        ws.cell(2, 5).value = 'Bogus segment' if bad else 'Local government'
-        ws.cell(2, 7).value = 10000
+        col = {c.value: c.column for c in ws[1]}
+        ws.cell(2, col['segments']).value = 'Bogus segment' if bad else 'Local government'
+        ws.cell(2, col['min_population']).value = 10000
     for row in overrides:
         wb['match_overrides'].append(list(row))
     wb.save(path)

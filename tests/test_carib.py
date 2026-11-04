@@ -274,7 +274,9 @@ def _old_template(path):
     wb = Workbook()
     ws = wb.active
     ws.title = 'tam_definitions'
-    ws.append(DEF_COLUMNS)
+    # oude kolomindeling (nog zonder country_name)
+    ws.append(['company', 'sales_unit', 'core_product', 'country', 'segments', 'excluded_kinds',
+               'min_population', 'notes'])
     for c in ('NL', 'BE', 'DE'):
         ws.append(['Company A', 'Unit 1', 'Product X', c,
                    'Local government' if c == 'NL' else None, None, None, 'hi' if c == 'NL' else None])
@@ -311,9 +313,10 @@ def test_template_accepts_new_countries_and_override_ids(tmp_path):
     make_template(products, path)
     wb = load_workbook(path)
     ws = wb['tam_definitions']
+    col = {c.value: c.column - 1 for c in ws[1]}
     for row in ws.iter_rows(min_row=2):
-        row[4].value = 'National government; Local government'
-        row[5].value = 'District administration'
+        row[col['segments']].value = 'National government; Local government'
+        row[col['excluded_kinds']].value = 'District administration'
     wb['match_overrides'].append(['1', 'SR-HAND-DISTRICT-WANICA', 'x'])
     wb['match_overrides'].append(['2', 'AW-HAND-ARUBA', 'x'])
     wb.save(path)

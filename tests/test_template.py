@@ -137,9 +137,10 @@ def test_duplicate_definition_rows_rejected(tmp_path):
     make_template(df, path)
     from openpyxl import load_workbook
     wb = load_workbook(path)
-    wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'NL', 'Regional government',
-                                  None, None, None])
-    wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'BE', None, None, None, None])
+    wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'NL', 'Nederland',
+                                  'Regional government', None, None, None])
+    wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'BE', 'België', None, None,
+                                  None, None])
     wb.save(path)
     _fill(path, {2: {'segments': 'Local government'}, 3: {'segments': 'Local government'}})
     with pytest.raises(TemplateError) as e:
@@ -160,7 +161,7 @@ def test_lists_sheet_shows_detailed_per_segment(tmp_path):
     make_template(products, p)
     ws = load_workbook(p)['lists']
     assert [c.value for c in ws[1]][:4] == ['segment', 'detailed_segment', 'landen', 'wat valt eronder']
-    rows = [r for r in ws.iter_rows(min_row=2, values_only=True) if r[0] and r[1]]
+    rows = [r for r in ws.iter_rows(min_row=2, values_only=True) if r[0] in SEGMENTS and r[1]]
     expected = [(s, d) for s in SEGMENTS for d in DETAILED_SEGMENTS[s]]
     assert [(r[0], r[1]) for r in rows] == expected
     assert all(r[2] and r[3] for r in rows)
@@ -204,4 +205,44 @@ def test_template_columns_fitted(tmp_path):
     make_template(products, p)
     ws = load_workbook(p)['tam_definitions']
     assert ws.column_dimensions['B'].width >= len('A rather long sales unit name')
-    assert ws.column_dimensions['G'].width >= len('min_population')
+    assert ws.column_dimensions['H'].width >= len('min_population')
+
+
+
+def test_template_has_country_name_next_to_code(tmp_path):
+    from openpyxl import load_workbook
+    p = tmp_path / 't.xlsx'
+    products = pd.DataFrame([('Company A', 'Unit 1', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p)
+    df = pd.read_excel(p, sheet_name='tam_definitions')
+    assert list(df.columns)[3:5] == ['country', 'country_name']
+    names = dict(zip(df['country'], df['country_name']))
+    assert names['NL'] == 'Nederland' and names['BQ'].startswith('Caribisch Nederland')
+    lists = [r for r in load_workbook(p)['lists'].iter_rows(values_only=True)]
+    assert ('BQ', 'Caribisch Nederland (Bonaire, Sint Eustatius, Saba)') in [tuple(r[:2]) for r in lists]
+
+
+def test_update_adds_country_name_to_old_template(tmp_path):
+    from openpyxl import Workbook
+    p = tmp_path / 't.xlsx'
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'tam_definitions'
+    ws.append(['company', 'sales_unit', 'core_product', 'country', 'segments', 'excluded_kinds',
+               'min_population', 'notes'])
+    ws.append(['Company A', 'Unit 1', 'Product X', 'NL', 'Local government', None, 10000, 'hi'])
+    wb.create_sheet('match_overrides').append(['accountid', 'entity_id', 'reason'])
+    wb.save(p)
+    products = pd.DataFrame([('Company A', 'Unit 1', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p, update=True)
+    df = pd.read_excel(p, sheet_name='tam_definitions')
+    assert list(df.columns)[3:5] == ['country', 'country_name']
+    first = df.iloc[0]
+    assert first['country'] == 'NL' and first['country_name'] == 'Nederland'
+    assert first['segments'] == 'Local government' and first['min_population'] == 10000
+    assert set(df['country']) == {'NL', 'BE', 'DE', 'AW', 'CW', 'SX', 'BQ', 'SR'}
+    assert df['country_name'].notna().all()
+    defs, _ = read_template(p)
+    assert len(defs) == 1 and defs[0].country == 'NL' and defs[0].min_population == 10000

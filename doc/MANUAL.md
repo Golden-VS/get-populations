@@ -526,7 +526,7 @@ the cached file). Only a source without any cached copy fails.
 
 ### Step D: reading the output
 
-The result is `tam_<date>.xlsx` (gitignored) with these sheets. In both the output and the template, column widths are set so that at least 80% of the values fit (never narrower than the heading; capped at 80 characters):
+The result is `tam_<date>.xlsx` (gitignored) with these sheets. Wherever a country code appears (`country`, `tam_country`), a readable `country_name` sits right next to it (NL Nederland, BE België, DE Duitsland, AW Aruba, CW Curaçao, SX Sint Maarten, BQ Caribisch Nederland (Bonaire, Sint Eustatius, Saba), SR Suriname); the template has the same column and `--update` adds it to an older template. The code stays the technical key in `entity_id` and for joins in Power BI. In both the output and the template, column widths are set so that at least 80% of the values fit (never narrower than the heading; capped at 80 characters):
 
 | Sheet | Contents | Use in Power BI |
 |---|---|---|

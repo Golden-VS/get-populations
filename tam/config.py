@@ -91,6 +91,12 @@ IN_TAM_STATUSES = ['yes', 'no - below cutoff', 'no - excluded kind', 'unknown - 
 # AW/CW/SX = Aruba, Curacao, Sint Maarten; BQ = Caribisch Nederland (Bonaire, Sint Eustatius,
 # Saba); SR = Suriname (spec sectie 15)
 COUNTRIES = ['NL', 'BE', 'DE', 'AW', 'CW', 'SX', 'BQ', 'SR']
+# Leesbare landnamen naast de code (de code blijft de technische sleutel in ids en Power BI).
+COUNTRY_NAMES = {
+    'NL': 'Nederland', 'BE': 'België', 'DE': 'Duitsland', 'AW': 'Aruba', 'CW': 'Curaçao',
+    'SX': 'Sint Maarten', 'BQ': 'Caribisch Nederland (Bonaire, Sint Eustatius, Saba)',
+    'SR': 'Suriname',
+}
 # CRM-landcodes (stap 1, detected_country) naar TAM-land. Stap 1 kent geen SR: Surinaamse
 # accounts zijn OTHER en krijgen SR via het adresland (ADDRESS_COUNTRY_TO_TAM, crm_in_scope).
 CRM_COUNTRY_TO_TAM = {'NL': 'NL', 'BE': 'BE', 'DE': 'DE', 'AW': 'AW', 'CW': 'CW', 'SX': 'SX',

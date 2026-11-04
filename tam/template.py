@@ -6,10 +6,10 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import Workbook, load_workbook
 
-from tam.config import COUNTRIES, DETAILED_SEGMENTS, SEGMENTS, all_detailed
+from tam.config import COUNTRIES, COUNTRY_NAMES, DETAILED_SEGMENTS, SEGMENTS, all_detailed
 from tam.xlsx_util import autofit_columns, write_instructions
 
-DEF_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'segments',
+DEF_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'country_name', 'segments',
                'excluded_kinds', 'min_population', 'notes']
 OVERRIDE_COLUMNS = ['accountid', 'entity_id', 'reason']
 ALWAYS_IGNORED = ['_Other', 'Undefined']
@@ -109,7 +109,8 @@ INSTRUCTIONS = [
     (None, None),
     ('Tabblad tam_definitions', 'Een rij per kernproduct per land. Vul alleen de rijen in waarvoor '
      'je een TAM wilt; rijen met een lege kolom segments worden overgeslagen. De kolommen '
-     'company, sales_unit, core_product en country zijn al ingevuld: niet wijzigen.'),
+     'company, sales_unit, core_product, country (landcode) en country_name (land) zijn al '
+     'ingevuld: niet wijzigen. De landcodes staan uitgelegd onderaan tabblad lists.'),
     ('  segments', 'Verplicht. Een of meer hoofdsegmenten, gescheiden door ; (puntkomma). '
      'Gebruik de namen uit kolom A van tabblad lists, bijvoorbeeld: '
      'Local government; Inter-municipal cooperation'),
@@ -179,12 +180,32 @@ def _lists_sheet(wb: Workbook) -> None:
     ws.append(['segments: alleen de segmentnamen uit kolom A. excluded_kinds: waarden uit kolom B '
                'die binnen die segmenten vallen.'])
     ws.append(['Meerdere waarden in een cel: scheiden met ; (puntkomma).'])
+    ws.append([])
+    ws.append(['landcode', 'land'])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+    for code in COUNTRIES:
+        ws.append([code, COUNTRY_NAMES[code]])
+
+
+def _ensure_country_name(ws) -> None:
+    """Oud template (zonder country_name): kolom direct na 'country' invoegen en vullen."""
+    header = [c.value for c in ws[1]]
+    if 'country_name' in header or 'country' not in header:
+        return
+    col = header.index('country') + 2          # 1-based positie direct na 'country'
+    ws.insert_cols(col)
+    ws.cell(1, col).value = 'country_name'
+    for row in range(2, ws.max_row + 1):
+        code = ws.cell(row, col - 1).value
+        ws.cell(row, col).value = COUNTRY_NAMES.get(str(code).strip(), '') if code else None
 
 
 def _product_rows(products: pd.DataFrame):
     for r in products.itertuples():
         for country in COUNTRIES:
-            yield [r.company, r.sales_unit, r.core_product, country, None, None, None, None]
+            yield [r.company, r.sales_unit, r.core_product, country, COUNTRY_NAMES[country],
+                   None, None, None, None]
 
 
 def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -> int:
@@ -207,6 +228,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
         return len(rows)
     wb = load_workbook(path)
     ws = wb['tam_definitions']
+    _ensure_country_name(ws)
     existing = {(r[0], r[2], r[3]) for r in ws.iter_rows(min_row=2, values_only=True)}
     added = 0
     for row in _product_rows(products):

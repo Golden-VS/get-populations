@@ -207,7 +207,7 @@ runbook: MANUAL section 7. Board/business explainer (2 pages, generic):
 **Where we are / next step**: the template `tam_template.xlsx` (local,
 gitignored, 224 rows = 28 core products x 8 countries, sorted by company,
 sales_unit, core_product, country) has only one filled row (first case:
-the JCC-type appointment product, NL, `Local government; Inter-municipal
+the first core product, NL, `Local government; Inter-municipal
 cooperation`, excluded kinds City district / Waste / Recreation / Environmental
 agency / Procurement / Social employment, min 10,000 -> 529 organisations in
 the TAM). The user hands the template to the business to fill in; when it

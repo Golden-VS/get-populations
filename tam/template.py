@@ -190,6 +190,27 @@ def _lists_sheet(wb: Workbook) -> None:
         ws.append([code, COUNTRY_NAMES[code]])
 
 
+SORT_COLUMNS = ['company', 'sales_unit', 'core_product', 'country']
+
+
+def _sort_definitions(ws) -> None:
+    """Sorteer de rijen van tam_definitions op company, sales_unit, core_product en als
+    laatste country (A-Z, hoofdletterongevoelig). Hele rijen schuiven mee, dus ingevulde
+    waarden blijven bij hun product en land."""
+    header = [c.value for c in ws[1]]
+    idx = [header.index(c) for c in SORT_COLUMNS if c in header]
+    rows = [list(r) for r in ws.iter_rows(min_row=2, values_only=True)]
+    rows = [r for r in rows if any(v not in (None, '') for v in r)]
+
+    def key(r):
+        return tuple(str(r[i]).strip().casefold() if r[i] is not None else '' for i in idx)
+
+    rows.sort(key=key)
+    ws.delete_rows(2, ws.max_row)
+    for r in rows:
+        ws.append(r)
+
+
 def _ensure_country_name(ws) -> None:
     """Oud template (zonder country_name): kolom direct na 'country' invoegen en vullen."""
     header = [c.value for c in ws[1]]
@@ -222,6 +243,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
         rows = list(_product_rows(products))
         for row in rows:
             ws.append(row)
+        _sort_definitions(ws)
         wb.create_sheet('match_overrides').append(OVERRIDE_COLUMNS)
         _lists_sheet(wb)
         _instructions_sheet(wb)
@@ -237,6 +259,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
         if (row[0], row[2], row[3]) not in existing:
             ws.append(row)
             added += 1
+    _sort_definitions(ws)
     _lists_sheet(wb)
     _instructions_sheet(wb)
     _fit_columns(wb)

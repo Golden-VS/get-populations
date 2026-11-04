@@ -54,12 +54,20 @@ def test_make_refuses_overwrite(tmp_path):
         make_template(df, path)
 
 
+def _row_of(ws, headers, core_product, country):
+    cp, c = headers.index('core_product') + 1, headers.index('country') + 1
+    return next(r for r in range(2, ws.max_row + 1)
+                if ws.cell(r, cp).value == core_product and ws.cell(r, c).value == country)
+
+
 def _fill(path, updates):
     from openpyxl import load_workbook
     wb = load_workbook(path)
     ws = wb['tam_definitions']
     headers = [c.value for c in ws[1]]
     for row, values in updates.items():
+        if isinstance(row, tuple):   # (core_product, country) -> Excel-rij
+            row = _row_of(ws, headers, *row)
         for col, v in values.items():
             ws.cell(row=row, column=headers.index(col) + 1, value=v)
     wb.save(path)
@@ -69,8 +77,8 @@ def test_update_keeps_filled_rows_overrides_and_adds_new(tmp_path):
     df, _ = _products(tmp_path)
     path = tmp_path / 'tpl.xlsx'
     make_template(df, path)
-    _fill(path, {2: {'segments': 'Local government; Regional government',
-                     'min_population': 10000.0, 'notes': 'hi'}})
+    _fill(path, {('Product X', 'NL'): {'segments': 'Local government; Regional government',
+                                       'min_population': 10000.0, 'notes': 'hi'}})
     from openpyxl import load_workbook
     wb = load_workbook(path)
     wb['match_overrides'].append(['123', 'NL-GM-0363', 'manual'])
@@ -142,12 +150,17 @@ def test_duplicate_definition_rows_rejected(tmp_path):
     wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'BE', 'België', None, None,
                                   None, None])
     wb.save(path)
-    _fill(path, {2: {'segments': 'Local government'}, 3: {'segments': 'Local government'}})
+    from openpyxl import load_workbook as _lw
+    ws = _lw(path)['tam_definitions']
+    headers = [c.value for c in ws[1]]
+    first_nl = _row_of(ws, headers, 'Product X', 'NL')
+    _fill(path, {first_nl: {'segments': 'Local government'},
+                 ('Product X', 'BE'): {'segments': 'Local government'}})
     with pytest.raises(TemplateError) as e:
         read_template(path)
     msg = str(e.value)
     dup_row = 2 + 2 * len(COUNTRIES)   # eerste toegevoegde rij na de kop en alle productrijen
-    assert f'rij {dup_row}:' in msg and 'rij 2)' in msg and 'Product X' in msg
+    assert f'rij {dup_row}:' in msg and f'rij {first_nl})' in msg and 'Product X' in msg
     # de lege dubbele rij (BE, zonder segments) telt niet
     assert f'rij {dup_row + 1}' not in msg
 
@@ -239,7 +252,7 @@ def test_update_adds_country_name_to_old_template(tmp_path):
     make_template(products, p, update=True)
     df = pd.read_excel(p, sheet_name='tam_definitions')
     assert list(df.columns)[3:5] == ['country', 'country_name']
-    first = df.iloc[0]
+    first = df[df['country'] == 'NL'].iloc[0]
     assert first['country'] == 'NL' and first['country_name'] == 'Nederland'
     assert first['segments'] == 'Local government' and first['min_population'] == 10000
     assert set(df['country']) == {'NL', 'BE', 'DE', 'AW', 'CW', 'SX', 'BQ', 'SR'}
@@ -282,3 +295,22 @@ def test_update_keeps_excel_table_in_sync_and_widths_valid(tmp_path):
             assert b1 < a2, (sheet.title, spans)
     defs, _ = read_template(p)
     assert len(defs) == 1 and defs[0].min_population == 10000
+
+
+def test_definitions_sorted_by_columns_country_last(tmp_path):
+    p = tmp_path / 't.xlsx'
+    products = pd.DataFrame([('Company B', 'Unit 1', 'Product Y'), ('Company A', 'Unit 2', 'Product Z'),
+                             ('Company A', 'Unit 1', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p)
+    _fill(p, {2: {'segments': 'Local government', 'notes': 'eerste rij'}})
+    filled = pd.read_excel(p, sheet_name='tam_definitions').iloc[0]
+    # nieuw product erbij: sortering blijft kloppen en ingevulde waarden blijven bij hun rij
+    more = pd.concat([products, pd.DataFrame([('Company A', 'Unit 1', 'Product W')],
+                                             columns=products.columns)])
+    make_template(more, p, update=True)
+    df = pd.read_excel(p, sheet_name='tam_definitions')
+    keys = list(zip(df['company'], df['sales_unit'], df['core_product'], df['country']))
+    assert keys == sorted(keys)
+    row = df[(df['core_product'] == filled['core_product']) & (df['country'] == filled['country'])].iloc[0]
+    assert row['segments'] == 'Local government' and row['notes'] == 'eerste rij'

@@ -73,10 +73,12 @@ def _template(tmp_path, *, fill=True, bad=False, overrides=()):
     wb = load_workbook(path)
     ws = wb['tam_definitions']
     if fill:
-        # rij 2 = Company A / Product X / NL
         col = {c.value: c.column for c in ws[1]}
-        ws.cell(2, col['segments']).value = 'Bogus segment' if bad else 'Local government'
-        ws.cell(2, col['min_population']).value = 10000
+        nl = next(r for r in range(2, ws.max_row + 1)
+                  if ws.cell(r, col['core_product']).value == 'Product X'
+                  and ws.cell(r, col['country']).value == 'NL')
+        ws.cell(nl, col['segments']).value = 'Bogus segment' if bad else 'Local government'
+        ws.cell(nl, col['min_population']).value = 10000
     for row in overrides:
         wb['match_overrides'].append(list(row))
     wb.save(path)

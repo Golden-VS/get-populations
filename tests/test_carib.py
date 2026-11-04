@@ -295,7 +295,7 @@ def test_update_adds_only_new_country_rows(tmp_path):
                             columns=['company', 'sales_unit', 'core_product'])
     assert make_template(products, path, update=True) == 5
     df = pd.read_excel(path, sheet_name='tam_definitions')
-    assert list(df['country']) == ['NL', 'BE', 'DE'] + NEW
+    assert list(df['country']) == sorted(['NL', 'BE', 'DE'] + NEW)
     defs, overrides = read_template(path)
     assert len(defs) == 1 and defs[0].country == 'NL' and defs[0].notes == 'hi'
     assert list(overrides['accountid']) == ['123']
@@ -321,5 +321,5 @@ def test_template_accepts_new_countries_and_override_ids(tmp_path):
     wb['match_overrides'].append(['2', 'AW-HAND-ARUBA', 'x'])
     wb.save(path)
     defs, overrides = read_template(path)
-    assert [d.country for d in defs] == COUNTRIES
+    assert [d.country for d in defs] == sorted(COUNTRIES)
     assert list(overrides['entity_id']) == ['SR-HAND-DISTRICT-WANICA', 'AW-HAND-ARUBA']

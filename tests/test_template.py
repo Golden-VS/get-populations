@@ -93,7 +93,8 @@ def test_update_keeps_filled_rows_overrides_and_adds_new(tmp_path):
     assert len(defs) == 1
     d = defs[0]
     assert d == TamDefinition('Company A', 'Unit 1', 'Product X', 'NL',
-                              ['Local government', 'Regional government'], [], 10000, 'hi')
+                              ['Local government', 'Regional government'], [], 10000, 'hi',
+                              factors={'Municipality': 1.0})   # vooraf ingevulde standaard
     assert list(overrides['accountid']) == ['123']
     assert len(pd.read_excel(path, sheet_name='tam_definitions')) == 3 * len(COUNTRIES)
 
@@ -394,10 +395,12 @@ def test_regions_values_validated(tmp_path):
     assert 'wallonië' not in msg
 
 
-def _factor_rows(path, rows):
+def _factor_rows(path, rows, *, clear=True):
     from openpyxl import load_workbook
     wb = load_workbook(path)
     ws = wb['factors']
+    if clear:   # standaardrijen weg, zodat de test alleen eigen regels heeft
+        ws.delete_rows(2, ws.max_row)
     for r in rows:
         ws.append(r)
     wb.save(path)
@@ -411,11 +414,33 @@ def test_factors_sheet_created_after_definitions_and_kept_on_update(tmp_path):
     names = load_workbook(path).sheetnames
     assert names.index('factors') == names.index('tam_definitions') + 1
     assert [c.value for c in load_workbook(path)['factors'][1]] == [
-        'company', 'core_product', 'country', 'detailed_segment', 'factor', 'notes']
-    _factor_rows(path, [[None, None, None, 'Province', 0.1, 'x']])
+        'sales_unit', 'core_product', 'country', 'detailed_segment', 'factor', 'notes']
+    ws = load_workbook(path)['factors']
+    preset = {r[3]: r[4] for r in ws.iter_rows(min_row=2, values_only=True)}
+    from tam.config import all_detailed
+    assert set(preset) == all_detailed() and ws.max_row == len(all_detailed()) + 1
+    assert preset['Municipality'] == 1 and preset['Province'] is None
+    assert read_template(path)[0] == []    # lege factoren blokkeren niets
+    _factor_rows(path, [['Unit 1', None, None, 'Province', 0.1, 'x']], clear=False)
     make_template(df, path, update=True)
     ws = load_workbook(path)['factors']
-    assert [c.value for c in ws[2]] == [None, None, None, 'Province', 0.1, 'x']
+    assert [c.value for c in ws[ws.max_row]] == ['Unit 1', None, None, 'Province', 0.1, 'x']
+    assert ws.max_row == len(all_detailed()) + 2      # niets bijgevuld of weggehaald
+
+
+def test_update_fills_empty_factors_sheet(tmp_path):
+    # tabblad met alleen een kopregel (zo eerder gekopieerd): bij --update vooraf gevuld
+    from openpyxl import load_workbook
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    make_template(df, path)
+    wb = load_workbook(path)
+    wb['factors'].delete_rows(2, wb['factors'].max_row)
+    wb.save(path)
+    make_template(df, path, update=True)
+    ws = load_workbook(path)['factors']
+    assert ws.max_row > 30 and [c.value for c in ws[1]][:5] == [
+        'sales_unit', 'core_product', 'country', 'detailed_segment', 'factor']
 
 
 def test_update_adds_factors_sheet_to_old_template(tmp_path):
@@ -441,17 +466,24 @@ def test_factors_most_specific_rule_wins(tmp_path):
     _fill(path, {('Product X', 'NL'): {'segments': 'Local government; Regional government'},
                  ('Product X', 'BE'): {'segments': 'Local government; Regional government'},
                  ('Product Y', 'NL'): {'segments': 'Local government; Regional government'}})
+    # Product X hoort bij Unit 1, Product Y bij Unit 3
     _factor_rows(path, [
         [None, None, None, 'Province', 0.1, 'iedereen'],
         [None, None, 'BE', 'Province', '0,2', 'komma mag'],
-        ['Company A', 'Product X', None, 'Province', 0.3, 'product wint van land'],
+        [None, 'Product X', None, 'Province', 0.3, 'product wint van land'],
         [None, None, None, 'Municipality', 1, None],
-        ['Company B', None, None, 'Municipality', 0.8, None],
+        ['Unit 3', None, None, 'Municipality', 0.8, 'sales unit wint van land'],
+        [None, None, 'NL', 'Municipality', 0.9, None],
+        [None, None, 'NL', 'Water authority', 0.5, None],
+        ['Unit 3', None, 'NL', 'Water authority', 0.6, 'unit + land wint van unit of land'],
+        ['Unit 3', None, None, 'Water authority', 0.7, None],
     ])
     defs = {(d.core_product, d.country): d for d in read_template(path)[0]}
-    assert defs[('Product X', 'NL')].factors == {'Province': 0.3, 'Municipality': 1.0}
+    assert defs[('Product X', 'NL')].factors == {'Province': 0.3, 'Municipality': 0.9,
+                                                 'Water authority': 0.5}
     assert defs[('Product X', 'BE')].factors == {'Province': 0.3, 'Municipality': 1.0}
-    assert defs[('Product Y', 'NL')].factors == {'Province': 0.1, 'Municipality': 0.8}
+    assert defs[('Product Y', 'NL')].factors == {'Province': 0.1, 'Municipality': 0.8,
+                                                 'Water authority': 0.6}
 
 
 def test_factors_validated(tmp_path):
@@ -459,8 +491,9 @@ def test_factors_validated(tmp_path):
     path = tmp_path / 'tpl.xlsx'
     make_template(df, path)
     _factor_rows(path, [
-        ['Company Q', 'Product Z', 'XX', 'Provincie', 'veel', None],
-        [None, None, None, None, None, 'alleen notitie'],
+        ['Unit Q', 'Product Z', 'XX', 'Provincie', 'veel', None],
+        [None, None, None, None, None, 'alleen notitie'],      # geen factor: telt niet mee
+        [None, None, 'NL', None, 0.5, None],
         [None, None, None, 'Province', -1, None],
         [None, None, None, 'Municipality', 1, None],
         [None, None, None, 'Municipality', 2, None],
@@ -468,12 +501,13 @@ def test_factors_validated(tmp_path):
     with pytest.raises(TemplateError) as e:
         read_template(path)
     msg = str(e.value)
-    for part in ("rij 2: onbekende waarde 'Company Q' in company",
+    for part in ("rij 2: onbekende waarde 'Unit Q' in sales_unit",
                  "rij 2: onbekende waarde 'Product Z' in core_product",
                  "rij 2: onbekende waarde 'XX' in country",
                  "rij 2: onbekende waarde 'Provincie' in detailed_segment",
                  "rij 2: onbekende waarde 'veel' in factor",
-                 'rij 3: detailed_segment ontbreekt', 'rij 3: factor ontbreekt',
-                 "rij 4: onbekende waarde '-1' in factor",
-                 'rij 6: dubbele regel voor (alle) / (alle) / (alle) / Municipality (ook in rij 5)'):
+                 'rij 4: detailed_segment ontbreekt',
+                 "rij 5: onbekende waarde '-1' in factor",
+                 'rij 7: dubbele regel voor (alle) / (alle) / (alle) / Municipality (ook in rij 6)'):
         assert part in msg, part
+    assert 'rij 3' not in msg

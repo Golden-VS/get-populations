@@ -107,5 +107,5 @@ def test_factor_per_detailed_segment_and_missing_report():
     msg = missing_factors(df.reset_index())
     # alleen in_tam yes telt: Klein valt onder de ondergrens
     assert msg.startswith('1 van 2 TAM-rijen (in_tam yes) zonder factor, 1 combinaties')
-    assert 'C / P / NL / City district (1)' in msg
+    assert 'S / P / NL / City district (1)' in msg
     assert missing_factors(df[df.index == 'A'].reset_index()) is None

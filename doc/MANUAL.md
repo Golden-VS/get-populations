@@ -486,25 +486,30 @@ rename them between years.
 **Sheet `factors`: price factor per kind of organisation.** The factor is the
 share of the municipal amount per inhabitant that a kind of organisation pays
 for a core product in a country (for example `0.1` for a province). It differs
-per company, core product, country and detailed segment, but most of it is
-shared, so the sheet holds rules where an empty cell means "all":
+per sales unit, core product, country and detailed segment, but most of it is
+shared, so the sheet holds rules where an empty cell means "all". A new sheet
+starts with one default rule per detailed segment (sales unit, core product
+and country empty; factor empty except `Municipality = 1`, which holds by
+definition because the ARPU is the municipal amount per inhabitant):
 
 | Column | Rule |
 |---|---|
-| `company`, `core_product` | Optional; empty = all. Must match `tam_definitions` exactly. |
+| `sales_unit`, `core_product` | Optional; empty = all. Must match `tam_definitions` exactly. |
 | `country` | Optional country code; empty = all countries. |
 | `detailed_segment` | Required; a value from column `detailed_segment` of sheet `lists`. |
-| `factor` | Required; a number >= 0. A decimal comma (`0,1`) is fine. |
+| `factor` | A number >= 0; a decimal comma (`0,1`) is fine. Empty = the row is ignored (not filled in yet). |
 | `notes` | Optional free text (for example what the factor is based on). |
 
-When several rules fit, the most specific one wins: a rule with a core product
-beats one with only a country, which beats one with only a company, which beats
-a rule with all three empty. Example: `Province = 0.1` for everything, plus
-`BE / Province = 0.2`, plus `<product> / Province = 0.3`. The same combination
-twice stops the run. The tool writes the resulting `factor` into every row of
+When several rules fit, the most specific one wins, ranked by core product,
+then sales unit, then country: a rule with a core product beats one with only
+a sales unit, which beats one with only a country, which beats the default.
+A rule with sales unit and country beats one with only the sales unit.
+Example: `Province = 0.1` (default), `BE / Province = 0.2`,
+`<product> / Province = 0.3`. The same combination twice stops the run. The tool writes the resulting `factor` into every row of
 sheet `TAM`; rows with `in_tam = yes` and no factor are counted in the run log
 warnings. A template without this sheet still works (all factors empty);
-`--update` adds the sheet, and it can also be copied by hand into a shared
+`--update` adds the sheet (or fills one that only has the heading row) and
+never touches a sheet with rules; it can also be copied by hand into a shared
 template.
 
 Sheet `match_overrides` is described under "Reviewing the matches" below.
@@ -654,7 +659,7 @@ other accounts go to the AI step.
 - **White space value** = `population x municipal ARPU per inhabitant x factor`
   (for example a province pays roughly 10% of the municipal rate per
   inhabitant). The factor is in column `factor` of sheet `TAM`, resolved per
-  company, core product, country and detailed segment from the template's
+  sales unit, core product, country and detailed segment from the template's
   `factors` sheet, so no separate factor table is needed in Power BI.
 - Rows with `in_tam = unknown - population missing` have no euro value; Power
   BI decides how to show them.

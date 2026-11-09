@@ -595,17 +595,19 @@ separate one with OCMW X), so the OCMW is a separate buyer.
 ## 18. Addition: price factors in the template (2026-11-09)
 
 Replaces the Power BI factor table of section 11: the factor differs per
-company, core product, country and detailed segment, and the business already
-maintains everything else in the template.
+sales unit, core product, country and detailed segment, and the business
+already maintains everything else in the template.
 
-- New sheet `factors` (`company`, `core_product`, `country`,
-  `detailed_segment`, `factor`, `notes`), right after `tam_definitions`. Empty
-  company / core_product / country = all. Most specific rule wins, ranked by
-  (core_product set, country set, company set). Duplicates, unknown values and
-  factors < 0 stop the run; a decimal comma is accepted.
+- New sheet `factors` (`sales_unit`, `core_product`, `country`,
+  `detailed_segment`, `factor`, `notes`), right after `tam_definitions`,
+  prefilled with one default rule per detailed segment (factor empty, except
+  Municipality = 1 by definition). Empty sales_unit / core_product / country =
+  all; rows without a factor are ignored. Most specific rule wins, ranked by
+  (core_product set, sales_unit set, country set). Duplicates, unknown values
+  and factors < 0 stop the run; a decimal comma is accepted.
 - The resolved factor goes into a `factor` column on every TAM row (empty when
   no rule fits); the run log lists `in_tam = yes` rows without a factor.
 - An old template without the sheet still reads (no factors); `--update` adds
-  an empty sheet and never touches an existing one, so the sheet can be copied
-  by hand into the shared template.
+  the sheet (or fills one with only a heading row) and never touches one with
+  rules, so the sheet can be copied by hand into the shared template.
 

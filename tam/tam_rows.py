@@ -39,9 +39,9 @@ def missing_factors(tam: pd.DataFrame) -> str | None:
     missing = yes[yes['factor'].isna()]
     if not len(missing):
         return None
-    combos = (missing.groupby(['company', 'core_product', 'country', 'detailed_segment'])
+    combos = (missing.groupby(['sales_unit', 'core_product', 'country', 'detailed_segment'])
               .size().reset_index(name='n'))
-    shown = '; '.join(f'{r.company} / {r.core_product} / {r.country} / {r.detailed_segment} ({r.n})'
+    shown = '; '.join(f'{r.sales_unit} / {r.core_product} / {r.country} / {r.detailed_segment} ({r.n})'
                       for r in combos.head(20).itertuples())
     more = f' (+{len(combos) - 20} meer)' if len(combos) > 20 else ''
     return (f'{len(missing)} van {len(yes)} TAM-rijen (in_tam yes) zonder factor, '

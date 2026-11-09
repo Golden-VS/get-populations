@@ -16,8 +16,8 @@ DEF_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'country_name
 REGION_COUNTRIES = {'BE': BE_REGIONS}
 OVERRIDE_COLUMNS = ['accountid', 'entity_id', 'reason']
 FACTOR_SHEET = 'factors'
-FACTOR_COLUMNS = ['company', 'core_product', 'country', 'detailed_segment', 'factor', 'notes']
-FACTOR_KEYS = ['company', 'core_product', 'country']
+FACTOR_COLUMNS = ['sales_unit', 'core_product', 'country', 'detailed_segment', 'factor', 'notes']
+FACTOR_KEYS = ['sales_unit', 'core_product', 'country']
 ALWAYS_IGNORED = ['_Other', 'Undefined']
 ENTITY_ID_RE = re.compile(r'^(' + '|'.join(COUNTRIES) + r')-[A-Z]+-.+$')
 
@@ -141,17 +141,23 @@ INSTRUCTIONS = [
     ('Tabblad factors', 'Prijsfactor per soort organisatie: welk deel van het gemeentelijke '
      'bedrag per inwoner betaalt deze soort voor een kernproduct in een land (bv. 0,1 = 10%). '
      'Power BI rekent: inwoners x ARPU per inwoner x factor. Een rij per regel; een lege '
-     'company, core_product of country betekent "alle". Zo geldt een rij met alleen '
-     'detailed_segment Province en factor 0,1 voor elk product in elk land, en gaat een rij '
-     'met een ingevuld core_product daarvoor. Volgorde bij meerdere passende rijen: een rij met '
-     'core_product wint, daarna een rij met country, daarna een rij met company.'),
-    ('  company', 'Optioneel. Leeg = alle companies. Anders exact zoals in tam_definitions.'),
+     'sales_unit, core_product of country betekent "alle". Vooraf staat er een rij per detailed '
+     'segment met die drie kolommen leeg: vul daar de standaardfactor in (Municipality = 1 '
+     'per definitie). Wijkt een sales unit, product of land af, voeg dan een rij toe met '
+     'sales_unit, '
+     'core_product en/of country ingevuld; zo gaat "Product X / Province = 0,3" voor de '
+     'standaard "Province = 0,1". Volgorde bij meerdere passende rijen: een rij met '
+     'core_product wint, daarna een rij met sales_unit, daarna een rij met country. Een rij '
+     'met meerdere kolommen ingevuld (bv. sales_unit en country) gaat voor een rij met '
+     'alleen een van die kolommen.'),
+    ('  sales_unit', 'Optioneel. Leeg = alle sales units. Anders exact zoals in '
+     'tam_definitions.'),
     ('  core_product', 'Optioneel. Leeg = alle kernproducten. Anders exact zoals in '
      'tam_definitions.'),
     ('  country', 'Optioneel. Landcode (NL, BE, DE, AW, CW, SX, BQ, SR). Leeg = alle landen.'),
     ('  detailed_segment', 'Verplicht. Een waarde uit kolom B van tabblad lists, bv. Province.'),
-    ('  factor', 'Verplicht. Een getal van 0 of meer, bv. 1 voor gemeenten, 0,1 voor '
-     'provincies.'),
+    ('  factor', 'Een getal van 0 of meer, bv. 1 voor gemeenten, 0,1 voor provincies. Leeg = '
+     'deze rij telt (nog) niet mee.'),
     ('  notes', 'Optioneel. Vrije tekst, bv. waar de factor op gebaseerd is.'),
     (None, 'Een soort zonder passende rij krijgt in de uitvoer een lege factor; het Run log '
      'telt hoeveel TAM-rijen (in_tam yes) nog geen factor hebben. Dezelfde combinatie twee '
@@ -277,18 +283,33 @@ def _ensure_regions(ws) -> None:
         ws.cell(row, col).value = _default_regions(ws.cell(row, country_col).value)
 
 
+# Gemeente = 1 per definitie: de ARPU is het bedrag per inwoner dat gemeenten betalen
+_FACTOR_PRESET = {'Municipality': (1, 'per definitie: ARPU per inwoner komt van gemeenten')}
+
+
 def _ensure_factors_sheet(wb) -> None:
-    """Tabblad factors (leeg, alleen kopregel) direct na tam_definitions, als het er nog niet is;
-    een bestaand tabblad blijft ongemoeid."""
+    """Tabblad factors direct na tam_definitions, als het er nog niet is, vooraf gevuld met een
+    standaardregel (sales_unit/core_product/country leeg) per detailed segment; factor leeg behalve
+    Municipality. Een bestaand tabblad met regels blijft ongemoeid; een leeg (alleen kopregel)
+    wordt gevuld."""
     from openpyxl.styles import Font
 
     if FACTOR_SHEET in wb.sheetnames:
-        return
-    ws = wb.create_sheet(FACTOR_SHEET, wb.sheetnames.index('tam_definitions') + 1)
+        ws = wb[FACTOR_SHEET]
+        if any(any(v not in (None, '') for v in r) for r in ws.iter_rows(min_row=2, values_only=True)):
+            return
+        ws.delete_rows(1, ws.max_row)
+    else:
+        ws = wb.create_sheet(FACTOR_SHEET, wb.sheetnames.index('tam_definitions') + 1)
     ws.append(FACTOR_COLUMNS)
     for cell in ws[1]:
         cell.font = Font(bold=True)
+    for segment in SEGMENTS:
+        for detailed in DETAILED_SEGMENTS[segment]:
+            factor, note = _FACTOR_PRESET.get(detailed, (None, None))
+            ws.append([None, None, None, detailed, factor, note])
     ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = f'A1:F{ws.max_row}'
 
 
 def _product_rows(products: pd.DataFrame):
@@ -373,20 +394,20 @@ def _read_factors(path: Path, definitions: pd.DataFrame, errors: list[str]) -> l
         return {str(v).strip() for v in definitions.get(column, pd.Series(dtype=object))
                 if not _blank(v)}
 
-    companies, products = known('company'), known('core_product')
+    units, products = known('sales_unit'), known('core_product')
     rules, seen = [], {}
     for idx, row in df.iterrows():
         xl = idx + 2
-        if all(_blank(row.get(c)) for c in FACTOR_COLUMNS):
-            continue
+        if _blank(row.get('factor')):
+            continue   # nog niet ingevuld: regel telt niet mee (zoals een lege segments-rij)
         rule = {c: '' if _blank(row.get(c)) else str(row.get(c)).strip()
                 for c in FACTOR_KEYS + ['detailed_segment']}
 
         def bad(value, column):
             errors.append(f"factors rij {xl}: onbekende waarde '{value}' in {column}")
 
-        if rule['company'] and rule['company'] not in companies:
-            bad(rule['company'], 'company')
+        if rule['sales_unit'] and rule['sales_unit'] not in units:
+            bad(rule['sales_unit'], 'sales_unit')
         if rule['core_product'] and rule['core_product'] not in products:
             bad(rule['core_product'], 'core_product')
         if rule['country'] and rule['country'] not in COUNTRIES:
@@ -396,10 +417,8 @@ def _read_factors(path: Path, definitions: pd.DataFrame, errors: list[str]) -> l
         elif rule['detailed_segment'] not in all_detailed():
             bad(rule['detailed_segment'], 'detailed_segment')
         raw = row.get('factor')
-        factor = None if _blank(raw) else _number(raw)
-        if _blank(raw):
-            errors.append(f'factors rij {xl}: factor ontbreekt')
-        elif factor is None or factor < 0 or factor != factor:
+        factor = _number(raw)
+        if factor is None or factor < 0 or factor != factor:
             bad(raw, 'factor')
         key = tuple(rule[c] for c in FACTOR_KEYS + ['detailed_segment'])
         if key in seen:
@@ -414,13 +433,13 @@ def _read_factors(path: Path, definitions: pd.DataFrame, errors: list[str]) -> l
 
 def resolve_factors(rules: list[dict], d: TamDefinition) -> dict[str, float]:
     """detailed_segment -> factor voor een definitie: de meest specifieke passende regel
-    (ingevuld core_product gaat voor country, dat gaat voor company)."""
+    (ingevuld core_product gaat voor sales_unit, dat gaat voor country)."""
     best: dict[str, tuple] = {}
-    values = {'company': d.company, 'core_product': d.core_product, 'country': d.country}
+    values = {'sales_unit': d.sales_unit, 'core_product': d.core_product, 'country': d.country}
     for r in rules:
         if any(r[c] and r[c] != values[c] for c in FACTOR_KEYS):
             continue
-        rank = (bool(r['core_product']), bool(r['country']), bool(r['company']))
+        rank = (bool(r['core_product']), bool(r['sales_unit']), bool(r['country']))
         if r['detailed_segment'] not in best or rank > best[r['detailed_segment']][0]:
             best[r['detailed_segment']] = (rank, r['factor'])
     return {seg: f for seg, (_, f) in best.items()}

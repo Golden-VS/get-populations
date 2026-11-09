@@ -21,6 +21,8 @@ DETAILED_SEGMENTS = {
         'Municipal autonomous agency',
         # sectie 15: Surinaamse districten (achteraan, bestaande volgorde blijft gelijk)
         'District administration',
+        # 2026-11-09: OCMW/CPAS als eigen organisatie (gemeente en OCMW kopen apart)
+        'Municipal social services (OCMW)',
     ],
     'Regional government': [
         'State', 'Region / Community', 'Province', 'Administrative district',
@@ -53,6 +55,7 @@ KIND_TO_SEGMENT = {
     'be_district': ('Local government', 'City district'),
     'de_bezirk': ('Local government', 'City district'),
     'be_agb': ('Local government', 'Municipal autonomous agency'),
+    'be_ocmw': ('Local government', 'Municipal social services (OCMW)'),
     'de_stadtstaat': ('Regional government', 'State'),
     'de_bundesland': ('Regional government', 'State'),
     'be_gewest': ('Regional government', 'Region / Community'),

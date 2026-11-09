@@ -45,10 +45,11 @@ def test_op_members_mapped_to_nis():
     # g1 via refnis-code, g2 zonder code via genormaliseerde naam
     assert set(m.member_entity_id) == {'BE-NIS-11001', 'BE-NIS-11002'}
     assert set(m.membership_type) == {'cooperation'} and set(m.member_kind) == {'be_gemeente'}
-    # welzijnsvereniging: OCMW -> zijn gemeente; opgeheven gemeente -> fusieopvolger;
-    # rol 'gerelateerd' telt niet als lid; geen dubbele leden
+    # welzijnsvereniging: OCMW -> het OCMW van die gemeente (eigen organisatie);
+    # opgeheven gemeente -> fusieopvolger; rol 'gerelateerd' telt niet als lid; geen dubbele leden
     w = _members(b, 'BE-KBO-0682000001')
-    assert sorted(w.member_entity_id) == ['BE-NIS-11001', 'BE-NIS-11002']
+    assert sorted(w.member_entity_id) == ['BE-NIS-11001', 'BE-OCMW-11002']
+    assert dict(zip(w.member_entity_id, w.member_kind))['BE-OCMW-11002'] == 'be_ocmw'
     wv = b.entities[b.entities.entity_id == 'BE-KBO-0682000001'].iloc[0]
     assert wv['kind'] == 'be_welzijnsvereniging' and wv['name'] == 'Welzijnsvereniging Welzijn Samen'
 
@@ -65,7 +66,10 @@ def test_op_agb_same_as_municipality():
 def test_op_gemeente_kbo_patches():
     b = _op()
     patches = b.extras['id_patches']
-    assert patches.to_dict('records') == [{'entity_id': 'BE-NIS-11001', 'official_ids': 'kbo:0207000001'}]
+    # OCMW-KBO gaat naar de OCMW-entiteit (die maakt load_be_wikidata per gemeente)
+    assert sorted(patches.to_dict('records'), key=lambda r: r['entity_id']) == [
+        {'entity_id': 'BE-NIS-11001', 'official_ids': 'kbo:0207000001'},
+        {'entity_id': 'BE-OCMW-11002', 'official_ids': 'kbo:0212000002'}]
     assert b.status[0].name == 'be_op' and b.status[0].ok
 
 
@@ -272,7 +276,16 @@ def test_load_be_wikidata_offline(tmp_path):
     assert e.loc['BE-NIS-60000', 'population_method'] == 'sum of members'
     m = b.memberships
     assert set(m[m.entity_id == 'BE-NIS-60000'].member_entity_id) == {'BE-NIS-62063'}
-    assert set(m.membership_type) == {'territorial'}
+    assert set(m.membership_type) == {'territorial', 'same_as'}
+    # een OCMW/CPAS per gemeente, in de taal van de gemeente, bevolking via same_as
+    ocmw = e[e.kind == 'be_ocmw']
+    assert len(ocmw) == len(e[e.kind == 'be_gemeente'])
+    assert ocmw.loc['BE-OCMW-62063', 'name'].startswith('CPAS ')
+    assert ocmw.loc['BE-OCMW-62063', 'population_method'] == 'same as municipality'
+    assert ocmw.loc['BE-OCMW-11001', 'name'].startswith('OCMW ')
+    same = m[m.membership_type == 'same_as']
+    assert dict(zip(same.entity_id, same.member_entity_id))['BE-OCMW-62063'] == 'BE-NIS-62063'
+    assert 'OCMW Luik' in set(b.aliases[b.aliases.entity_id == 'BE-OCMW-62063'].alias_name)
     assert b.extras['municipal_population']['BE-NIS-62063'] == 200
     names = b.extras['be_gemeente_names']
     assert {'Luik', 'Liège', 'Lüttich'} <= set(names[names.entity_id == 'BE-NIS-62063'].name)

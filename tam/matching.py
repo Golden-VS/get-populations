@@ -48,7 +48,7 @@ TYPE_TO_KINDS: dict[str, set[str]] = {
     'rijksoverheid': {'nl_ministerie', 'nl_rijksorganisatie', *_NATIONAL_CARIB_SR},
     'land': {'bq_openbaar_lichaam', *_NATIONAL_CARIB_SR},
     'gemeente_be': {'be_gemeente'},
-    'ocmw': {'be_gemeente'},
+    'ocmw': {'be_ocmw'},
     'agb': {'be_agb'},
     'politiezone': {'be_politiezone'},
     'hulpverleningszone': {'be_hulpverleningszone'},
@@ -531,8 +531,11 @@ Kies per account precies een kandidaat-id uit de lijst van DAT account, of "none
 
 REGELS:
 - Gebruik alleen ids uit de kandidatenlijst van dat account; verzin nooit een id.
-- Een OCMW/CPAS, of een afdeling, dienst of bedrijf-in-eigen-beheer van een gemeente
-  (bv. Burgerzaken, Bürgeramt, Stadtverwaltung, Fachbereich), hoort bij die gemeente.
+- Een afdeling, dienst of bedrijf-in-eigen-beheer van een gemeente (bv. Burgerzaken,
+  Bürgeramt, Stadtverwaltung, Fachbereich) hoort bij die gemeente.
+- Een OCMW/CPAS/ÖSHZ (ook Sociaal Huis, Sociale Dienst) is een eigen organisatie: kies de
+  OCMW-kandidaat (soort be_ocmw), niet de gemeente; omgekeerd hoort een gemeente-account
+  niet bij het OCMW.
 - Een Duitse Ortsgemeinde die in een Amt, Verbandsgemeinde, Samtgemeinde of
   Verwaltungsgemeinschaft zit, hoort bij dat Amt/Verband; die staat dan als
   alias-kandidaat in de lijst.
@@ -547,7 +550,7 @@ REGELS:
   de kandidaten zijn: "none".
 - Twijfel je tussen twee kandidaten, kies dan de beste en geef confidence "low".
 - "reason": korte reden (hooguit ~10 woorden), bv. "predecessor municipality, merged 2016",
-  "department of", "OCMW van de gemeente", "Ortsgemeinde im Amt", "duplicate account",
+  "department of", "OCMW of the municipality", "Ortsgemeinde im Amt", "duplicate account",
   "commercial company".
 - "confidence": "high" = zeker, "medium" = waarschijnlijk, "low" = twijfel.
 - Geef voor elk volgnummer in de invoer precies een antwoord terug, met hetzelfde volgnummer.

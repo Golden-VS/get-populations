@@ -37,6 +37,7 @@ def test_apply_be_regions_sources_members_and_fallbacks():
         dict(entity_id='BE-NIS-44021', name='Gent', country='BE', kind='be_gemeente'),
         dict(entity_id='BE-NIS-21004', name='Brussel', country='BE', kind='be_gemeente'),
         dict(entity_id='BE-NIS-62063', name='Luik', country='BE', kind='be_gemeente'),
+        dict(entity_id='BE-OCMW-21015', name='OCMW Schaarbeek', country='BE', kind='be_ocmw'),
         dict(entity_id='BE-KBO-1', name='AGB Gent', country='BE', kind='be_agb', source=op),
         dict(entity_id='BE-HAND-PZ-X', name='Zone X', country='BE', kind='be_politiezone'),
         dict(entity_id='BE-KBO-2', name='Koepel', country='BE', kind='be_samenwerking', source=op),
@@ -56,6 +57,7 @@ def test_apply_be_regions_sources_members_and_fallbacks():
     out = apply_be_regions(e, m, warnings).set_index('entity_id')['be_region']
     assert out['BE-NIS-44021'] == 'Vlaanderen'
     assert out['BE-KBO-1'] == 'Vlaanderen'
+    assert out['BE-OCMW-21015'] == 'Brussel'
     assert out['BE-HAND-PZ-X'] == 'Brussel; Wallonie'
     assert out['BE-KBO-2'] == 'Brussel; Wallonie'
     assert out['BE-KBO-3'] == 'Vlaanderen'

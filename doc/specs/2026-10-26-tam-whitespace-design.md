@@ -68,12 +68,12 @@ Consequences:
 | Bremen | 1 (Land/Stadt Bremen) + Bremerhaven | Bremerhaven has its own administration |
 | Shared service organisation + its members | separate | the cooperation has its own staff |
 | Dissolved / merged municipality | 0 | only appears as a CRM alias of its successor |
-| BE OCMW / CPAS | 0 | the municipality buys; OCMW accounts count toward their gemeente |
+| BE OCMW / CPAS | 1 per gemeente | own customer next to the gemeente (revised 2026-11-09, section 17) |
 | DE Gemeinde inside an Amt / Verbandsgemeinde / Samtgemeinde / Verwaltungsgemeinschaft (BY, TH) / Verwaltungsverband (SN) | 0 | administered by the Gemeindeverband; its accounts count toward that Verband |
 | DE Gemeinde in a BW Gemeindeverwaltungsverband or vereinbarte VG | 1 | keeps its own Rathaus and staff (the GVV is a separate entity too) |
 
 "Counts toward" means: the CRM account is matched to the buying entity, with a
-match reason saying why (predecessor, OCMW of, member of Verband). That keeps
+match reason saying why (predecessor, member of Verband). That keeps
 revenue on such accounts in the black space.
 
 Exception the builder must handle: DE Gemeinden that are members of a
@@ -166,7 +166,7 @@ veiligheidsregio (VGGM) is named differently, so match by member set or TOOI.
 | Intercommunale (Wallonia, Brussels) | ~81 + ~9 | Inter-municipal cooperation -> classified | unknown | Wallonia: SPW cadastre xlsx (`https://interieur.wallonie.be/files/documents/institutionnel/cadastre-2026-interco-et-slsp.xlsx`, intercommunales only, not the housing companies); Brussels: hand table (~9) |
 | FOD / POD | ~20 | National government -> Federal public service | country total | hand table |
 
-Excluded entirely: OCMW / CPAS, verenigingen van OCMW's, worship bodies. Antwerp districts (in the OP dump) have their own staff and
+Excluded entirely: worship bodies (OCMW / CPAS: see section 17). Antwerp districts (in the OP dump) have their own staff and
 offices and are included as City district.
 
 **OP dump** = Agentschap Binnenland OrganisatiePortaal PublicCacheGraphDump,
@@ -291,7 +291,7 @@ candidates:
   successor relation; BE: 2025 merger list; DE: Destatis Gebietsaenderungen or
   Wikidata P1366). The builder picks the successor source per country; it must
   be official or Wikidata, never AI-generated.
-- OCMW/CPAS -> its gemeente; DE member Gemeinde -> its Gemeindeverband.
+- DE member Gemeinde -> its Gemeindeverband. (OCMW/CPAS: own entity, section 17.)
 
 **Pass 1 (no AI)**: exact match on official id if the CRM has it in
 `cx_kvknummer` (checked 2026-10-27: ~1,090 NL accounts hold an 8-digit KvK,
@@ -567,4 +567,29 @@ sheet carries `be_region` so Power BI can slice on it.
 
 The tool reads template columns by heading, so the column can also be added by
 hand to a shared template while the business is filling it in.
+
+## 17. Revision: OCMW / CPAS as own entity (2026-11-09)
+
+Reverses the section 3.1 rule "OCMW counts toward its gemeente": a gemeente and
+its OCMW can each hold their own contract (a contract with gemeente X and a
+separate one with OCMW X), so the OCMW is a separate buyer.
+
+- Kind `be_ocmw`, detailed segment `Municipal social services (OCMW)` under
+  Local government. Products that select Local government include OCMWs by
+  default (user's choice); the business excludes them via `excluded_kinds`.
+- One entity per Belgian gemeente (`BE-OCMW-<NIS>`), built from the gemeente
+  list: by law (Organic law of 8 July 1976) every municipality has exactly
+  one OCMW / CPAS / OSHZ; in Flanders integrated with the gemeente since 2019
+  but still its own legal person with its own KBO number. Name in the
+  gemeente's language (OCMW / CPAS / OSHZ), population = the gemeente's
+  (`same as municipality`). KBO numbers of the 285 Flemish OCMWs come from the
+  OP dump as id patches, so pass 1 matches on them.
+- Matching: detected_type `ocmw` matches only `be_ocmw`; every predecessor
+  alias of a BE gemeente is mirrored as `OCMW <name>` to the successor's OCMW.
+  The AI prompt treats an OCMW as its own organisation.
+- Welzijnsverenigingen list OCMWs as members; those memberships now point to
+  the OCMW. Member population sums resolve a member through its same_as link,
+  counting each gemeente once.
+- Step 2 (population enrichment) is unchanged: an OCMW account still gets its
+  gemeente's population there.
 

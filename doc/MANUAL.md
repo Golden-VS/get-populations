@@ -424,6 +424,15 @@ compute white space (potential not yet served) and black space (already served).
 It runs about once a year. The master list comes from registers (not from the
 CRM), so it also contains organisations that are not customers.
 
+**Belgian OCMWs** (CPAS in Wallonia, OSHZ in the German-speaking part) are
+separate organisations in the list, one per municipality, with the
+municipality's population: a gemeente and its OCMW can each be a customer with
+their own contract. They fall under Local government as detailed segment
+`Municipal social services (OCMW)`, so a product that selects Local government
+includes them unless the business lists that value in `excluded_kinds`. An
+"OCMW X" account in the CRM is matched to OCMW X, not to gemeente X. (Step 2
+is different: there an OCMW account simply gets its gemeente's population.)
+
 ### Prerequisites
 
 1. **A fresh CRM export**, processed through step 1 and step 1b (sections 1

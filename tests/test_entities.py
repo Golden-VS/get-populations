@@ -107,3 +107,23 @@ def test_country_total_without_municipalities_warns(caplog):
         out = apply_country_totals(ents, {'NL-GM-1': 5})
     assert pd.isna(out.loc[0, 'population'])
     assert 'BE-FOD-1' in caplog.text
+
+
+def test_member_sum_resolves_ocmw_via_same_as_without_double_count():
+    # welzijnsvereniging met OCMW A, OCMW B en gemeente B als leden: A + B, B een keer
+    e = pd.DataFrame([new_entity(entity_id='W', name='W', country='BE', kind='be_welzijnsvereniging',
+                                 population_method='sum of members')], columns=ENTITY_COLUMNS)
+    m = pd.DataFrame([
+        {'entity_id': 'W', 'member_entity_id': 'BE-OCMW-1', 'member_kind': 'be_ocmw',
+         'membership_type': 'cooperation', 'join_date': ''},
+        {'entity_id': 'W', 'member_entity_id': 'BE-OCMW-2', 'member_kind': 'be_ocmw',
+         'membership_type': 'cooperation', 'join_date': ''},
+        {'entity_id': 'W', 'member_entity_id': 'BE-NIS-2', 'member_kind': 'be_gemeente',
+         'membership_type': 'cooperation', 'join_date': ''},
+        {'entity_id': 'BE-OCMW-1', 'member_entity_id': 'BE-NIS-1', 'member_kind': 'be_gemeente',
+         'membership_type': 'same_as', 'join_date': ''},
+        {'entity_id': 'BE-OCMW-2', 'member_entity_id': 'BE-NIS-2', 'member_kind': 'be_gemeente',
+         'membership_type': 'same_as', 'join_date': ''},
+    ], columns=MEMBERSHIP_COLUMNS)
+    out, warnings = apply_member_population(e, m, {'BE-NIS-1': 100, 'BE-NIS-2': 50})
+    assert out.iloc[0]['population'] == 150 and warnings == []

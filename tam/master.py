@@ -375,6 +375,22 @@ def _fill_same_as(entities, memberships, municipal_population, warnings):
     return out
 
 
+def _ocmw_predecessor_aliases(aliases, entity_ids):
+    """Elke voorgangernaam van een Belgische gemeente ook als 'OCMW <naam>' naar het OCMW
+    van de opvolger (uit alle aliasbronnen: OP-dump en de opvolgerbron in aliases.py)."""
+    if not len(aliases):
+        return aliases
+    pred = aliases[aliases['entity_id'].str.startswith('BE-NIS-')
+                   & aliases['reason'].fillna('').str.startswith('predecessor')]
+    extra = pred.assign(alias_name='OCMW ' + pred['alias_name'],
+                        entity_id=pred['entity_id'].str.replace('BE-NIS-', 'BE-OCMW-', regex=False))
+    extra = extra[extra['entity_id'].isin(entity_ids)]
+    if not len(extra):
+        return aliases
+    return (pd.concat([aliases, extra], ignore_index=True)
+            .drop_duplicates(['alias_name', 'country', 'entity_id']).reset_index(drop=True))
+
+
 def build_master(cache, loaders: list[tuple[str, Callable]] | None = None) -> SourceBundle:
     """Draai alle laders, voeg samen, vul bevolking en valideer.
 
@@ -397,6 +413,7 @@ def build_master(cache, loaders: list[tuple[str, Callable]] | None = None) -> So
     muni_pop = _municipal_population(entities, extras.get('municipal_population'))
     memberships = _check_memberships(merged.memberships, entity_ids, muni_pop, warnings)
     aliases = _check_aliases(merged.aliases, entity_ids, warnings)
+    aliases = _ocmw_predecessor_aliases(aliases, entity_ids)
     entities = apply_be_regions(entities, memberships, warnings)
 
     entities, sum_warnings = apply_member_population(entities, memberships, muni_pop)

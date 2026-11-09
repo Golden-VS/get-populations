@@ -142,14 +142,22 @@ def apply_member_population(entities, memberships, municipal_population):
     out = entities.copy()
     warnings: list[str] = []
     members_by_entity = {}
+    same_as: dict[str, str] = {}
     if len(memberships):
         for eid, group in memberships.groupby('entity_id'):
             members_by_entity[eid] = list(dict.fromkeys(group['member_entity_id']))
+        same = memberships[memberships['membership_type'] == 'same_as']
+        for eid, mid in same[['entity_id', 'member_entity_id']].values:
+            same_as.setdefault(eid, mid)
     for idx, row in out.iterrows():
         if row['population_method'] != 'sum of members' or not _is_empty(row['population']):
             continue
         members = members_by_entity.get(row['entity_id'], [])
-        found = [m for m in members if m in municipal_population]
+        # een lid zoals een OCMW telt met de bevolking van zijn gemeente (same_as), elke
+        # gemeente een keer, ook als gemeente en OCMW allebei lid zijn
+        resolved = dict.fromkeys(m if m in municipal_population else same_as.get(m, m)
+                                 for m in members)
+        found = [m for m in resolved if m in municipal_population]
         if found:
             out.at[idx, 'population'] = sum(municipal_population[m] for m in found)
         else:

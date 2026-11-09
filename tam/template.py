@@ -63,6 +63,9 @@ DETAILED_HELP = {
     'City district': ('NL, BE, DE', 'Stadsdeel Amsterdam, district Antwerpen, Bezirk Berlijn/Hamburg'),
     'Island authority': ('BQ', 'Openbaar lichaam Bonaire, Sint Eustatius, Saba'),
     'Municipal autonomous agency': ('BE', 'Autonoom gemeentebedrijf (AGB)'),
+    'Municipal social services (OCMW)': ('BE', 'OCMW / CPAS / ÖSHZ, een per gemeente (in '
+                                         'Vlaanderen sinds 2019 geintegreerd, maar eigen '
+                                         'rechtspersoon en apart klant)'),
     'District administration': ('SR', 'Districtscommissariaat (10 districten Suriname)'),
     'State': ('DE', 'Bundesland, incl. stadstaten Berlijn, Hamburg, Bremen'),
     'Region / Community': ('BE', 'Gewest of Gemeenschap'),

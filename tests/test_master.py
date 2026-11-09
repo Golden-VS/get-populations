@@ -344,3 +344,20 @@ def test_loader_warnings_reach_run_log_warnings():
     # master-eigen foutregels (bron b mislukt) niet dubbel: die staan al in 'Bronnen met fouten'
     assert not any(w.startswith('Bron b mislukt') for w in warnings)
     assert len(warnings) == len(set(warnings))
+
+
+def test_gemeente_predecessor_alias_also_for_its_ocmw():
+    b = _bundle('be', entities=[
+        _gem('BE-NIS-71071', 'Tessenderlo-Ham', 40000, country='BE', kind='be_gemeente'),
+        dict(entity_id='BE-OCMW-71071', name='OCMW Tessenderlo-Ham', country='BE', kind='be_ocmw',
+             population_method='same as municipality')],
+        memberships=[('BE-OCMW-71071', 'BE-NIS-71071', 'same_as')],
+        aliases=[('Ham', 'BE', 'BE-NIS-71071')])
+    b.aliases['reason'] = 'predecessor, merged 2024'
+    result = build_master(cache=None, loaders=[('be', _fixed(b))])
+    a = result.aliases
+    assert set(map(tuple, a[['alias_name', 'entity_id', 'reason']].values)) == {
+        ('Ham', 'BE-NIS-71071', 'predecessor, merged 2024'),
+        ('OCMW Ham', 'BE-OCMW-71071', 'predecessor, merged 2024')}
+    ocmw = result.entities.set_index('entity_id').loc['BE-OCMW-71071']
+    assert ocmw['population'] == 40000 and ocmw['be_region'] == 'Vlaanderen'

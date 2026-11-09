@@ -30,7 +30,7 @@ def test_district_administration_appended_to_local_government():
     local = DETAILED_SEGMENTS['Local government']
     assert local[:5] == ['Municipality', 'County-level city', 'City district', 'Island authority',
                          'Municipal autonomous agency']
-    assert local[5:] == ['District administration']
+    assert local[5:] == ['District administration', 'Municipal social services (OCMW)']
 
 
 def test_new_kinds_mapped():

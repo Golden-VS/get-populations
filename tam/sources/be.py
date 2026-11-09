@@ -306,6 +306,31 @@ def _statbel_file(cache):
     return None, None
 
 
+# OCMW / CPAS / OSHZ: elke Belgische gemeente heeft er precies een (Organieke wet van 8 juli
+# 1976 betreffende de OCMW's; in Vlaanderen sinds 2019 geintegreerd met de gemeente maar een
+# eigen rechtspersoon met eigen KBO-nummer). Daarom een entiteit per gemeente, bevolking =
+# die van de gemeente. KBO-nummers van de Vlaamse OCMW's komen uit de OP-dump (id-patch).
+OCMW_SOURCE = "Organieke wet OCMW's 8 juli 1976: een OCMW/CPAS per gemeente"
+_OCMW_PREFIX = {'nl': 'OCMW', 'fr': 'CPAS', 'de': 'ÖSHZ'}
+
+
+def ocmw_id(nis) -> str:
+    return make_entity_id('BE', 'OCMW', _nis(nis))
+
+
+def _ocmw_for(nis, gemeente_id, gemeente_name, all_names, region, run_date):
+    """(entiteit, same_as-lidmaatschap, aliassen) van het OCMW van een gemeente."""
+    eid = ocmw_id(nis)
+    name = f'{_OCMW_PREFIX[_language(nis)]} {gemeente_name}'
+    row = new_entity(
+        entity_id=eid, name=name, country='BE', kind='be_ocmw', region=region,
+        population_method='same as municipality', source=OCMW_SOURCE, source_date=run_date)
+    member = {'entity_id': eid, 'member_entity_id': gemeente_id, 'member_kind': 'be_gemeente',
+              'membership_type': 'same_as', 'join_date': ''}
+    variants = [f'{p} {n}' for n in all_names for p in ('OCMW', 'CPAS', 'ÖSHZ')]
+    return row, member, _alias_rows(eid, name, variants, 'naam in andere landstaal')
+
+
 def load_be_wikidata(cache) -> SourceBundle:
     bundle = SourceBundle.empty()
     try:
@@ -336,6 +361,7 @@ def load_be_wikidata(cache) -> SourceBundle:
     run_date = date.today().isoformat()
     prov_names = {r.nis: r.name for r in prov.itertuples()}
     rows, members, aliases, names, muni_pop = [], [], [], [], {}
+    ocmw_rows, ocmw_members, ocmw_aliases = [], [], []
     for r in gem.itertuples():
         eid = make_entity_id('BE', 'NIS', r.nis)
         if r.nis in statbel_pop:
@@ -360,6 +386,10 @@ def load_be_wikidata(cache) -> SourceBundle:
         if pcode is not None:
             members.append({'entity_id': make_entity_id('BE', 'NIS', pcode), 'member_entity_id': eid,
                             'member_kind': 'be_gemeente', 'membership_type': 'territorial', 'join_date': ''})
+        row, member, ocmw_alias = _ocmw_for(r.nis, eid, r.name, all_names, region, run_date)
+        ocmw_rows.append(row)
+        ocmw_members.append(member)
+        ocmw_aliases.extend(ocmw_alias)
     for r in prov.itertuples():
         pid = make_entity_id('BE', 'NIS', r.nis)
         rows.append(new_entity(
@@ -376,13 +406,16 @@ def load_be_wikidata(cache) -> SourceBundle:
     n_gem = len(gem)
     if not 560 <= n_gem <= 570:
         log.warning('BE: %d gemeenten, verwacht 560-570 (na de Vlaamse fusies van 2025: 565)', n_gem)
+    rows.extend(ocmw_rows)
+    members.extend(ocmw_members)
+    aliases.extend(ocmw_aliases)
     bundle.entities = pd.DataFrame(rows, columns=bundle.entities.columns)
     bundle.memberships = pd.DataFrame(members, columns=bundle.memberships.columns)
     bundle.aliases = pd.DataFrame(aliases, columns=ALIAS_COLUMNS)
     bundle.extras['municipal_population'] = muni_pop
     bundle.extras['be_gemeente_names'] = pd.DataFrame(names, columns=['entity_id', 'name'])
     msg = (f'{n_gem} gemeenten ({sum(1 for n in gem["nis"] if n in statbel_pop)} met Statbel-'
-           f'bevolking {statbel_year or "-"}), {len(prov)} provincies')
+           f'bevolking {statbel_year or "-"}), {len(ocmw_rows)} OCMW/CPAS, {len(prov)} provincies')
     log.info('BE Wikidata: %s', msg)
     bundle.status.append(SourceStatus('be_wikidata', True, len(rows),
                                       f'{statbel_year}-01-01' if statbel_year else run_date, msg))
@@ -539,7 +572,8 @@ def _op_entity_id(g: _OpGraph, s: str) -> str:
 
 
 def parse_op_dump(nt_path: Path, gemeenten: pd.DataFrame, source_date: str = '') -> SourceBundle:
-    """OP-dump naar entiteiten (zones, AGB's, districten, verenigingen), leden en KBO-patches."""
+    """OP-dump naar entiteiten (zones, AGB's, districten, verenigingen), leden en KBO-patches
+    (gemeenten, provincies en OCMW's; de OCMW-entiteiten zelf komen uit load_be_wikidata)."""
     g = _OpGraph(Path(nt_path))
     index = build_name_index(gemeenten)
     gem_ids = set(gemeenten['entity_id']) if gemeenten is not None and len(gemeenten) else set()
@@ -603,7 +637,8 @@ def parse_op_dump(nt_path: Path, gemeenten: pd.DataFrame, source_date: str = '')
             if eid is None:
                 unresolved.append(f'{g.label(cur)} ({cls})')
                 return None
-            return eid, 'be_gemeente'
+            # welzijnsverenigingen hebben OCMW's als lid: het OCMW zelf, niet de gemeente
+            return (ocmw_id(eid), 'be_ocmw') if cls == 'ocmw' else (eid, 'be_gemeente')
         if cls == 'provincie':
             code = g.nis(cur)
             return (make_entity_id('BE', 'NIS', code), 'be_provincie') if code else None
@@ -692,10 +727,12 @@ def parse_op_dump(nt_path: Path, gemeenten: pd.DataFrame, source_date: str = '')
     patches = {}
     for s in orgs:
         cls = g.cls(s)
-        if cls not in ('gemeente', 'provincie') or not g.active(s) or not g.kbo(s):
+        if cls not in ('gemeente', 'provincie', 'ocmw') or not g.active(s) or not g.kbo(s):
             continue
-        eid = gemeente_id(s) if cls == 'gemeente' else (
+        eid = gemeente_id(s) if cls in ('gemeente', 'ocmw') else (
             make_entity_id('BE', 'NIS', g.nis(s)) if g.nis(s) else None)
+        if eid is not None and cls == 'ocmw':
+            eid = ocmw_id(eid)
         if eid is None:
             unresolved.append(f'{g.label(s)} (KBO-patch {cls})')
             continue

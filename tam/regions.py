@@ -2,7 +2,7 @@
 in het template: per kernproduct kan de business Wallonie en/of Brussel uitsluiten.
 
 Volgorde van bepalen:
-  1. NIS-code in de id (gemeenten, provincies): uit de code zelf.
+  1. NIS-code in de id (gemeenten, provincies, OCMW's): uit de code zelf.
   2. Vaste waarde per bron of soort: gewesten/gemeenschappen (handtabel), districten
      (alleen Antwerpen), Waalse intercommunales (SPW), Brusselse intercommunales (handtabel).
   3. Leden (elk lidmaatschapstype, ook same_as): de unie van de gewesten van de leden;
@@ -85,8 +85,8 @@ def apply_be_regions(entities: pd.DataFrame, memberships: pd.DataFrame,
     for eid, kind in out.loc[be, ['entity_id', 'kind']].values:
         if kind in _NATIONAL_KINDS:
             continue
-        if eid.startswith('BE-NIS-'):
-            found[eid] = {region_of_nis(eid)}
+        if eid.startswith('BE-NIS-') or eid.startswith('BE-OCMW-'):
+            found[eid] = {region_of_nis(eid.rsplit('-', 1)[-1])}
         elif eid in _FIXED_IDS:
             found[eid] = set(_FIXED_IDS[eid])
         elif kind in _FIXED_KINDS:

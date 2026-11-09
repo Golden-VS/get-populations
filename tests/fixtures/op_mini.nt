@@ -37,6 +37,10 @@
 <http://ex.org/org/o2> <http://www.w3.org/ns/regorg#orgStatus> <http://ex.org/st/actief>.
 <http://ex.org/org/o2> <http://data.vlaanderen.be/ns/besluit#werkingsgebied> <http://ex.org/wg/g2>.
 <http://ex.org/wg/g2> <http://www.w3.org/2004/02/skos/core#exactMatch> <http://vocab.belgif.be/auth/refnis2025/11002>.
+<http://ex.org/org/o2> <http://www.w3.org/ns/adms#identifier> <http://ex.org/id/o2kbo>.
+<http://ex.org/id/o2kbo> <http://www.w3.org/2004/02/skos/core#notation> """KBO nummer""".
+<http://ex.org/id/o2kbo> <https://data.vlaanderen.be/ns/generiek#gestructureerdeIdentificator> <http://ex.org/gi/o2kbo>.
+<http://ex.org/gi/o2kbo> <https://data.vlaanderen.be/ns/generiek#lokaleIdentificator> """0212000002""".
 <http://ex.org/org/pz1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://data.vlaanderen.be/ns/besluit#Bestuurseenheid>.
 <http://ex.org/org/pz1> <http://www.w3.org/2004/02/skos/core#prefLabel> """PZ Alfa/Bèta""".
 <http://ex.org/org/pz1> <http://www.w3.org/ns/regorg#legalName> """PZ Alfa/Bèta""".

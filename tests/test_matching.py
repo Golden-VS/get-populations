@@ -102,7 +102,7 @@ def test_caribbean_maps_to_own_country():
 # ---------- helpers ----------
 
 def test_type_to_kinds_values():
-    assert TYPE_TO_KINDS['ocmw'] == {'be_gemeente'}
+    assert TYPE_TO_KINDS['ocmw'] == {'be_ocmw'}
     assert TYPE_TO_KINDS['stadsdeel'] == {'nl_stadsdeel', 'be_district'}
     assert 'stadtwerke' not in TYPE_TO_KINDS
 
@@ -276,11 +276,15 @@ def test_build_name_index_shape():
     assert index[('NL', 'bussum')] == [('NL-CBS-GM1942', 'nl_gemeente', 'predecessor, merged 2016')]
 
 
-def test_ocmw_account_matches_gemeente():
-    entities = ents(dict(entity_id='BE-NIS-44021', name='Gent', country='BE', kind='be_gemeente'))
-    frame = crm(dict(name='OCMW Gent', canonical_name='Gent', detected_type='ocmw', detected_country='BE'))
+def test_ocmw_account_matches_ocmw_not_gemeente():
+    # gemeente en OCMW zijn aparte klanten (2026-11-09): elk account naar zijn eigen entiteit
+    entities = ents(dict(entity_id='BE-NIS-44021', name='Gent', country='BE', kind='be_gemeente'),
+                    dict(entity_id='BE-OCMW-44021', name='OCMW Gent', country='BE', kind='be_ocmw'))
+    frame = crm(dict(name='OCMW Gent', canonical_name='Gent', detected_type='ocmw', detected_country='BE'),
+                dict(name='Stad Gent', canonical_name='Gent', detected_type='gemeente_be',
+                     detected_country='BE'))
     matched, _ = run_pass1(frame, entities)
-    assert matched_ids(matched) == {'acc-0': 'BE-NIS-44021'}
+    assert matched_ids(matched) == {'acc-0': 'BE-OCMW-44021', 'acc-1': 'BE-NIS-44021'}
 
 
 # ---------- candidates ----------

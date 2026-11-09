@@ -109,3 +109,24 @@ def test_factor_per_detailed_segment_and_missing_report():
     assert msg.startswith('1 van 2 TAM-rijen (in_tam yes) zonder factor, 1 combinaties')
     assert 'S / P / NL / City district (1)' in msg
     assert missing_factors(df[df.index == 'A'].reset_index()) is None
+
+
+def test_factor_todo_groups_missing_kinds_per_product():
+    from tam.tam_rows import UNCLASSIFIED, factor_todo
+    e = ents(dict(entity_id='NL-CBS-1', name='A', country='NL', kind='nl_gemeente', population=20000),
+             dict(entity_id='NL-P-1', name='Prov', country='NL', kind='nl_provincie', population=10**6),
+             dict(entity_id='NL-P-2', name='Prov2', country='NL', kind='nl_provincie', population=10**6),
+             dict(entity_id='NL-OO-1', name='GR', country='NL', kind='nl_samenwerking',
+                  population=50000, detailed_segment=''),
+             dict(entity_id='NL-CBS-2', name='Wijk', country='NL', kind='nl_stadsdeel', population=9))
+    segs = ['Local government', 'Regional government', 'Inter-municipal cooperation']
+    defs = [definition(segments=segs, min_population=None, excluded_kinds=['City district'],
+                       factors={'Municipality': 1.0}),
+            definition(core_product='Q', segments=['Regional government'], min_population=None)]
+    tam = build_tam_rows(e, defs, {})
+    todo = factor_todo(tam, e).set_index('detailed_segment')
+    assert set(todo.index) == {'Province', UNCLASSIFIED}      # gemeente heeft er een, wijk uitgesloten
+    assert todo.at['Province', 'organisaties'] == 4
+    assert todo.at['Province', 'waar'] == 'S / P / NL (2); S / Q / NL (2)'
+    assert todo.at['Province', 'segment'] == 'Regional government'
+    assert factor_todo(tam[tam['detailed_segment'] == 'Municipality'], e).empty

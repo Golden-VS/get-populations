@@ -526,7 +526,18 @@ venv/bin/python tam_build.py --dry-run
 The dry run downloads the registers (cached in `reference/`), builds the master
 list, does the free rule-based matching and prints the **estimated AI cost**
 against the cap. It makes no AI call and writes no output file. It needs no API key. Check the
-estimate, then run for real. In the yearly run, force fresh register
+estimate, then run for real.
+
+Both the dry run and the real run also write **`factors_todo.xlsx`** (gitignored):
+one row per kind of organisation (`detailed_segment`) that falls inside a TAM
+(`in_tam = yes`) but has no factor yet, with the number of organisations and
+per sales unit / core product / country where it occurs. Hand it to the
+business: they fill in the default row of that kind in the template's
+`factors` sheet, and add a specific row only where a product or country
+differs. When nothing is missing the file says so. In a dry run, cooperations
+that still wait for AI classification appear as one group
+"(samenwerking, soort nog te bepalen door de AI)"; option `--factors-todo
+<file>` writes the list elsewhere. In the yearly run, force fresh register
 downloads:
 
 ```bash

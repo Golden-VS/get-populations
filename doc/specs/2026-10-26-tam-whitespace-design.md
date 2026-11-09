@@ -610,4 +610,8 @@ already maintains everything else in the template.
 - An old template without the sheet still reads (no factors); `--update` adds
   the sheet (or fills one with only a heading row) and never touches one with
   rules, so the sheet can be copied by hand into the shared template.
+- `--dry-run` and the real run write `factors_todo.xlsx`: one row per
+  detailed segment inside a TAM without a factor, with counts per sales unit /
+  core product / country, so the business knows which default rows to fill.
+  The tool never writes into the shared template itself.
 

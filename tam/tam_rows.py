@@ -48,6 +48,32 @@ def missing_factors(tam: pd.DataFrame) -> str | None:
             f'{len(combos)} combinaties: {shown}{more}')
 
 
+FACTOR_TODO_COLUMNS = ['segment', 'detailed_segment', 'organisaties', 'waar']
+UNCLASSIFIED = '(samenwerking, soort nog te bepalen door de AI)'
+
+
+def factor_todo(tam: pd.DataFrame, entities: pd.DataFrame) -> pd.DataFrame:
+    """Een rij per soort (detailed_segment) die in de TAM valt (in_tam yes) maar geen factor
+    heeft: aantal organisaties en per sales unit / product / land hoeveel. Hulplijst voor de
+    business om de standaardrij in het tabblad factors in te vullen."""
+    yes = tam[(tam['in_tam'] == 'yes') & tam['factor'].isna()]
+    if not len(yes):
+        return pd.DataFrame(columns=FACTOR_TODO_COLUMNS)
+    segment_of = dict(zip(entities['entity_id'], entities['segment']))
+    yes = yes.assign(detailed_segment=yes['detailed_segment'].fillna('').replace('', UNCLASSIFIED),
+                     segment=yes['entity_id'].map(segment_of).fillna(''))
+    rows = []
+    for (segment, detailed), group in yes.groupby(['segment', 'detailed_segment'], sort=False):
+        where = (group.groupby(['sales_unit', 'core_product', 'country']).size()
+                 .reset_index(name='n'))
+        rows.append({'segment': segment, 'detailed_segment': detailed,
+                     'organisaties': len(group),
+                     'waar': '; '.join(f'{r.sales_unit} / {r.core_product} / {r.country} ({r.n})'
+                                       for r in where.itertuples())})
+    return (pd.DataFrame(rows, columns=FACTOR_TODO_COLUMNS)
+            .sort_values(['segment', 'detailed_segment']).reset_index(drop=True))
+
+
 def build_tam_rows(entities: pd.DataFrame, definitions: list,
                    match_counts: dict) -> pd.DataFrame:
     rows = []

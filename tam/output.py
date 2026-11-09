@@ -148,6 +148,29 @@ def write_output(path: Path, *, tam, matches, entities, memberships, unmatched, 
     return [path]
 
 
+def write_factors_todo(path: Path, todo: pd.DataFrame) -> None:
+    """factors_todo.xlsx: welke soorten in de TAM nog een factor missen (ook als er niets
+    ontbreekt, zodat een oud bestand nooit blijft staan met verouderde inhoud)."""
+    from openpyxl.styles import Font
+
+    path = Path(path)
+    with pd.ExcelWriter(path, engine='openpyxl') as writer:
+        todo.to_excel(writer, sheet_name='factors_todo', index=False)
+        ws = writer.sheets['factors_todo']
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        note = ws.max_row + 2
+        if len(todo):
+            ws.cell(note, 1).value = ('Vul per soort de factor in op de standaardrij (sales_unit, '
+                                      'core_product en country leeg) van het tabblad factors in '
+                                      'het template. Wijkt een product of land af, voeg daar dan '
+                                      'een rij met die kolom ingevuld aan toe.')
+        else:
+            ws.cell(note, 1).value = 'Alle soorten in de TAM hebben een factor.'
+        ws.freeze_panes = 'A2'
+        autofit_columns(ws)
+
+
 def _require(df, columns, what):
     if not isinstance(df, pd.DataFrame) or not set(columns) <= set(df.columns):
         raise ValueError(f'{what}: DataFrame met kolommen {columns} verwacht')

@@ -175,6 +175,10 @@ def test_dry_run_writes_no_output(tmp_path, env, capsys):
     out = capsys.readouterr().out
     assert 'AI-schatting' in out
     assert 'Gemeente Aadorp' not in out
+    # wel de factorlijst: het template heeft alleen Municipality = 1 als standaard
+    todo = pd.read_excel(tmp_path / 'factors_todo.xlsx', sheet_name='factors_todo')
+    assert 'Municipality' not in set(todo['detailed_segment'].dropna())
+    assert 'Factoren:' in out and 'factors_todo.xlsx' in out
 
 
 def test_dry_run_without_key_makes_no_ai_call(tmp_path, env, capsys):

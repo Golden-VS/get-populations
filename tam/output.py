@@ -34,8 +34,9 @@ OUTPUT_INSTRUCTIONS = [
     ('  matched_accounts', 'Aantal gekoppelde CRM-accounts. 0 = geen account, dus zeker '
      'whitespace; >0 = account bestaat, Power BI bepaalt via de omzet of het blackspace is.'),
     ('  factor', 'Prijsfactor uit het tabblad factors van het template (meest specifieke '
-     'regel voor dit kernproduct, land en detailed_segment). Leeg = nog geen factor ingevuld. '
-     'Waarde in Power BI = population x ARPU per inwoner x factor.'),
+     'regel voor dit kernproduct, land en detailed_segment). Leeg = geen factor ingevuld; er '
+     'wordt niet met 1 gerekend, dus in Power BI telt de rij als 0 (het Run log noemt deze '
+     'combinaties). Waarde in Power BI = population x ARPU per inwoner x factor.'),
     ('  population', 'Vertegenwoordigd inwonertal (samenwerkingen: som van de deelnemende '
      'gemeenten). Basis voor ARPU per inwoner x factor.'),
     (None, None),

@@ -506,8 +506,11 @@ a sales unit, which beats one with only a country, which beats the default.
 A rule with sales unit and country beats one with only the sales unit.
 Example: `Province = 0.1` (default), `BE / Province = 0.2`,
 `<product> / Province = 0.3`. The same combination twice stops the run. The tool writes the resulting `factor` into every row of
-sheet `TAM`; rows with `in_tam = yes` and no factor are counted in the run log
-warnings. A template without this sheet still works (all factors empty);
+sheet `TAM`. Only kinds inside a product's TAM (selected segments, not
+excluded) need a factor. A TAM row without a fitting rule keeps an empty factor
+on purpose, not 1: in Power BI it then counts as 0, because 1x would add the
+inhabitants of provinces and cooperations on top of their municipalities. The
+run log warnings list every combination with `in_tam = yes` and no factor. A template without this sheet still works (all factors empty);
 `--update` adds the sheet (or fills one that only has the heading row) and
 never touches a sheet with rules; it can also be copied by hand into a shared
 template.

@@ -159,9 +159,15 @@ INSTRUCTIONS = [
     ('  factor', 'Een getal van 0 of meer, bv. 1 voor gemeenten, 0,1 voor provincies. Leeg = '
      'deze rij telt (nog) niet mee.'),
     ('  notes', 'Optioneel. Vrije tekst, bv. waar de factor op gebaseerd is.'),
-    (None, 'Een soort zonder passende rij krijgt in de uitvoer een lege factor; het Run log '
-     'telt hoeveel TAM-rijen (in_tam yes) nog geen factor hebben. Dezelfde combinatie twee '
-     'keer invullen geeft een foutmelding.'),
+    ('  Welke factoren nodig?', 'Alleen voor soorten die in de TAM van een product vallen: binnen '
+     'de gekozen segments en niet in excluded_kinds. Een uitgesloten soort of een soort in een '
+     'land zonder ingevulde rij heeft geen factor nodig.'),
+    ('  Geen factor = 0', 'Valt een soort wel in de TAM maar is er geen passende rij met een '
+     'factor, dan blijft de factor leeg. Er wordt NIET met 1 gerekend: in Power BI telt die '
+     'soort dan als 0 (geen bedrag). Dat is bewust: met 1 zouden bv. provincies en '
+     'samenwerkingen hun inwoners nog eens bovenop de gemeenten tellen. Het Run log noemt elke '
+     'combinatie (sales unit / product / land / soort) die nog een factor mist.'),
+    ('  Dubbel', 'Dezelfde combinatie twee keer invullen geeft een foutmelding.'),
     (None, None),
     ('Tabblad lists', 'Naslag: een rij per detailed segment, met ernaast het hoofdsegment '
      'waartoe het hoort, de landen waar het voorkomt en wat eronder valt. Filter kolom A '

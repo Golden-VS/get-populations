@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 
 ENTITY_COLUMNS = [
     'entity_id', 'name', 'match_name', 'country', 'kind', 'segment', 'detailed_segment',
-    'region', 'postcode', 'population', 'population_method', 'population_source',
+    'region', 'be_region', 'postcode', 'population', 'population_method', 'population_source',
     'population_date', 'official_ids', 'source', 'source_date',
 ]
 MEMBERSHIP_COLUMNS = ['entity_id', 'member_entity_id', 'member_kind', 'membership_type', 'join_date']

@@ -25,8 +25,11 @@ OUTPUT_INSTRUCTIONS = [
     ('Blad TAM', 'Een rij per kernproduct x land x organisatie in de gekozen segmenten.'),
     ('  in_tam', 'yes = hoort bij de TAM; no - below cutoff = minder inwoners dan '
      'min_population; no - excluded kind = soort uitgesloten in excluded_kinds; '
+     'no - excluded region = Belgisch gewest niet gekozen in regions; '
      'unknown - population missing = ondergrens ingesteld maar inwonertal onbekend '
      '(Power BI kiest zelf). Filter op yes voor de TAM.'),
+    ('  be_region', 'Belgie: Vlaanderen, Brussel of Wallonie (samenwerkingen: de gewesten '
+     'van hun leden). Leeg bij andere landen en bij federale diensten.'),
     ('  in_tam_reason', 'Waarom deze status (bv. inwoners 7.512 < 10.000).'),
     ('  matched_accounts', 'Aantal gekoppelde CRM-accounts. 0 = geen account, dus zeker '
      'whitespace; >0 = account bestaat, Power BI bepaalt via de omzet of het blackspace is.'),

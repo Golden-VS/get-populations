@@ -1,16 +1,19 @@
 """Invoersjabloon (tam_template.xlsx): aanmaken, bijwerken, lezen en valideren."""
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
 from openpyxl import Workbook, load_workbook
 
 from tam.config import COUNTRIES, COUNTRY_NAMES, DETAILED_SEGMENTS, SEGMENTS, all_detailed
+from tam.regions import BE_REGIONS, canonical_region, join_regions
 from tam.xlsx_util import autofit_columns, sync_tables, write_instructions
 
-DEF_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'country_name', 'segments',
-               'excluded_kinds', 'min_population', 'notes']
+DEF_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'country_name', 'regions',
+               'segments', 'excluded_kinds', 'min_population', 'notes']
+# Landen met een regions-kolom en de standaardwaarde (alles aan; business haalt weg)
+REGION_COUNTRIES = {'BE': BE_REGIONS}
 OVERRIDE_COLUMNS = ['accountid', 'entity_id', 'reason']
 ALWAYS_IGNORED = ['_Other', 'Undefined']
 ENTITY_ID_RE = re.compile(r'^(' + '|'.join(COUNTRIES) + r')-[A-Z]+-.+$')
@@ -30,6 +33,7 @@ class TamDefinition:
     excluded_kinds: list[str]
     min_population: int | None
     notes: str
+    regions: list[str] = field(default_factory=list)   # leeg = het hele land
 
 
 def load_products(path: Path, config: dict) -> tuple[pd.DataFrame, list[dict]]:
@@ -111,6 +115,10 @@ INSTRUCTIONS = [
      'je een TAM wilt; rijen met een lege kolom segments worden overgeslagen. De kolommen '
      'company, sales_unit, core_product, country (landcode) en country_name (land) zijn al '
      'ingevuld: niet wijzigen. De landcodes staan uitgelegd onderaan tabblad lists.'),
+    ('  regions', 'Alleen voor BE, vooraf ingevuld met Vlaanderen; Brussel; Wallonie. Haal '
+     'de gewesten weg die niet bij de TAM van dit product horen, bv. alleen Vlaanderen. '
+     'Organisaties in een weggehaald gewest krijgen status "no - excluded region". Federale '
+     'diensten (FOD/POD) vallen nooit weg. Leeg = heel Belgie. Bij andere landen leeg laten.'),
     ('  segments', 'Verplicht. Een of meer hoofdsegmenten, gescheiden door ; (puntkomma). '
      'Gebruik de namen uit kolom A van tabblad lists, bijvoorbeeld: '
      'Local government; Inter-municipal cooperation'),
@@ -224,11 +232,30 @@ def _ensure_country_name(ws) -> None:
         ws.cell(row, col).value = COUNTRY_NAMES.get(str(code).strip(), '') if code else None
 
 
+def _default_regions(country) -> str | None:
+    regions = REGION_COUNTRIES.get(str(country).strip()) if country else None
+    return join_regions(regions) if regions else None
+
+
+def _ensure_regions(ws) -> None:
+    """Template zonder regions: kolom direct na 'country_name' invoegen en BE-rijen vullen
+    met alle gewesten (zelfde betekenis als leeg: heel Belgie)."""
+    header = [c.value for c in ws[1]]
+    if 'regions' in header or 'country_name' not in header:
+        return
+    col = header.index('country_name') + 2     # 1-based positie direct na 'country_name'
+    country_col = header.index('country') + 1
+    ws.insert_cols(col)
+    ws.cell(1, col).value = 'regions'
+    for row in range(2, ws.max_row + 1):
+        ws.cell(row, col).value = _default_regions(ws.cell(row, country_col).value)
+
+
 def _product_rows(products: pd.DataFrame):
     for r in products.itertuples():
         for country in COUNTRIES:
             yield [r.company, r.sales_unit, r.core_product, country, COUNTRY_NAMES[country],
-                   None, None, None, None]
+                   _default_regions(country), None, None, None, None]
 
 
 def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -> int:
@@ -253,11 +280,16 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
     wb = load_workbook(path)
     ws = wb['tam_definitions']
     _ensure_country_name(ws)
-    existing = {(r[0], r[2], r[3]) for r in ws.iter_rows(min_row=2, values_only=True)}
+    _ensure_regions(ws)
+    # Op kolomnaam, niet op positie: de business kan kolommen verschoven of toegevoegd hebben
+    header = [c.value for c in ws[1]]
+    key_idx = [header.index(c) for c in ('company', 'core_product', 'country')]
+    existing = {tuple(r[i] for i in key_idx) for r in ws.iter_rows(min_row=2, values_only=True)}
     added = 0
     for row in _product_rows(products):
-        if (row[0], row[2], row[3]) not in existing:
-            ws.append(row)
+        values = dict(zip(DEF_COLUMNS, row))
+        if (values['company'], values['core_product'], values['country']) not in existing:
+            ws.append([values.get(h) for h in header])
             added += 1
     _sort_definitions(ws)
     _lists_sheet(wb)
@@ -317,10 +349,21 @@ def read_template(path: Path) -> tuple[list[TamDefinition], pd.DataFrame]:
                 minpop = int(f)
             except (ValueError, TypeError, OverflowError):
                 bad(mp, 'min_population')
+        regions = []
+        for r in _split(row.get('regions')):
+            canon = canonical_region(r)
+            if country not in REGION_COUNTRIES:
+                errors.append(f"tam_definitions rij {xl}: regions alleen voor "
+                              f"{', '.join(REGION_COUNTRIES)}, niet voor {country}")
+                break
+            if canon is None or canon not in REGION_COUNTRIES[country]:
+                bad(r, 'regions')
+            elif canon not in regions:
+                regions.append(canon)
         notes = '' if _blank(row.get('notes')) else str(row['notes'])
         defs.append(TamDefinition(str(row['company']), str(row['sales_unit']),
                                   str(row['core_product']), country, segments, excluded,
-                                  minpop, notes))
+                                  minpop, notes, regions))
     overrides = pd.read_excel(path, sheet_name='match_overrides', dtype=str)
     overrides = overrides.reindex(columns=OVERRIDE_COLUMNS)
     for idx, eid in overrides['entity_id'].items():

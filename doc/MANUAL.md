@@ -464,6 +464,7 @@ filled in. The business fills in:
 | `segments` | One or more top-level segments for this product and country, separated by `;`: `Local government`, `Regional government`, `National government`, `Inter-municipal cooperation`, `Public safety & emergency` (for example `Local government;Inter-municipal cooperation`). Allowed values are in the first column of sheet `lists`. **Rows with empty `segments` are skipped.** |
 | `excluded_kinds` | Optional. Detailed segments (column `detailed_segment` of sheet `lists`, which shows on each row the segment it belongs to, the countries where it occurs and what falls under it; filter column `segment` to see the options for your segments) to leave out again, separated by `;` (for example `City district;Municipal autonomous agency`). This narrows the top-level segments when a product fits a whole group except a few kinds. |
 | `min_population` | Optional whole number. Entities below it are marked `no - below cutoff`. Empty means no cut-off. |
+| `regions` | Belgium only; prefilled with `Vlaanderen; Brussel; Wallonie` on every BE row. Remove the regions that are not in this product's TAM (for example keep only `Vlaanderen`). Entities in a removed region are marked `no - excluded region`; a cooperation or zone counts as long as one of its member municipalities is in a kept region; federal services (FOD/POD) never drop out. Empty means all of Belgium. Accents and case do not matter (`Wallonië` is fine). Leave it empty for other countries. `--update` adds the column (after `country_name`) to an older template; the tool finds every column by its heading, so the column may also be added by hand anywhere in the sheet. |
 | `notes` | Free text, copied to the output (last column of sheet `TAM`). |
 
 An unknown value stops the run with a message that names the row and the
@@ -531,9 +532,9 @@ The result is `tam_<date>.xlsx` (gitignored) with these sheets. Wherever a count
 | Sheet | Contents | Use in Power BI |
 |---|---|---|
 | `instructies` | First tab: a short Dutch guide to every sheet, the `in_tam` statuses, `match_pass`/`confidence` and how to correct matches | Not loaded; for readers |
-| `TAM` | One row per (template row x entity in the selected segments): company, sales unit, core product, country, `entity_id`, name, `detailed_segment`, `population`, `in_tam`, `in_tam_reason`, number of matched accounts, `notes` from the template | The white space base |
+| `TAM` | One row per (template row x entity in the selected segments): company, sales unit, core product, country, `entity_id`, name, `detailed_segment`, `be_region`, `population`, `in_tam`, `in_tam_reason`, number of matched accounts, `notes` from the template | The white space base |
 | `CRM matches` | One row per matched account: `entity_id`, `accountid`, CRM name, `match_pass`, `match_reason`, `confidence` | Join revenue per `accountid` to `entity_id`, then to `TAM` (black space) |
-| `Entities` | The full master list with all attributes (kind, region, ids, population method, source and date) | Audit, optional dimension table |
+| `Entities` | The full master list with all attributes (kind, region, `be_region` = Vlaanderen / Brussel / Wallonie for Belgium, ids, population method, source and date) | Audit, optional dimension table |
 | `Memberships` | Cooperation `entity_id` -> member `entity_id`, with the cooperation's `detailed_segment` and join date | Members of a paying cooperation count as covered |
 | `CRM unmatched` | CRM accounts in a TAM country (all except those step 1b marked certainly commercial) without an entity, with best candidate, the reason, and `crm_segment` / `crm_segment_category` from step 1b. Reason "geen overheidsorganisatie met gelijkende naam" means no organisation name in the list resembles the account (mostly companies, pharmacies and the like); it has nothing to do with inhabitants. Accounts abroad that step 1b marked Governmental appear with reason "land buiten scope" | Filter `crm_segment_category` on Governmental and Unknown to spot paying customers that are missing in the TAM |
 | `Run log` | Inputs (including the modification date of the CRM file), per-source status and dates, counts per country and kind, counts per `in_tam` status, population-unknown counts, AI calls and cache hits, product strays, new segment values, open points, and warnings (including source-level warnings from the register loaders) | Check after every run |
@@ -545,6 +546,7 @@ The result is `tam_<date>.xlsx` (gitignored) with these sheets. Wherever a count
 | `yes` | In the TAM for this product |
 | `no - below cutoff` | Population below `min_population` |
 | `no - excluded kind` | Its detailed segment is in `excluded_kinds` |
+| `no - excluded region` | Belgian entity whose region (`be_region`) is not in `regions` |
 | `unknown - population missing` | A cut-off is set but the population is not known |
 
 **`match_pass` values (sheet `CRM matches`)**

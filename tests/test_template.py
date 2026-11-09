@@ -145,10 +145,10 @@ def test_duplicate_definition_rows_rejected(tmp_path):
     make_template(df, path)
     from openpyxl import load_workbook
     wb = load_workbook(path)
-    wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'NL', 'Nederland',
+    wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'NL', 'Nederland', None,
                                   'Regional government', None, None, None])
     wb['tam_definitions'].append(['Company A', 'Unit 1', 'Product X', 'BE', 'België', None, None,
-                                  None, None])
+                                  None, None, None])
     wb.save(path)
     from openpyxl import load_workbook as _lw
     ws = _lw(path)['tam_definitions']
@@ -286,7 +286,7 @@ def test_update_keeps_excel_table_in_sync_and_widths_valid(tmp_path):
     ws = wb['tam_definitions']
     header = [c.value for c in ws[1]]
     table = ws.tables['Table1']
-    assert table.ref == f'A1:I{ws.max_row}'
+    assert table.ref == f'A1:J{ws.max_row}'
     assert [c.name for c in table.tableColumns] == header
     assert table.autoFilter.ref == table.ref
     for sheet in wb.worksheets:
@@ -314,3 +314,81 @@ def test_definitions_sorted_by_columns_country_last(tmp_path):
     assert keys == sorted(keys)
     row = df[(df['core_product'] == filled['core_product']) & (df['country'] == filled['country'])].iloc[0]
     assert row['segments'] == 'Local government' and row['notes'] == 'eerste rij'
+
+
+def test_new_template_has_regions_prefilled_for_be_only(tmp_path):
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    make_template(df, path)
+    t = pd.read_excel(path, sheet_name='tam_definitions', dtype=object)
+    cols = list(t.columns)
+    assert cols[cols.index('country_name') + 1] == 'regions'
+    assert set(t.loc[t['country'] == 'BE', 'regions']) == {'Vlaanderen; Brussel; Wallonie'}
+    assert t.loc[t['country'] != 'BE', 'regions'].isna().all()
+    _fill(path, {('Product X', 'BE'): {'segments': 'Local government'}})
+    d = next(x for x in read_template(path)[0] if x.country == 'BE')
+    assert d.regions == ['Vlaanderen', 'Brussel', 'Wallonie']
+
+
+def test_update_adds_regions_and_keeps_business_values(tmp_path):
+    # Oud template zonder regions, met ingevulde rijen: kolom erbij, niets kwijt
+    from openpyxl import Workbook
+    p = tmp_path / 't.xlsx'
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'tam_definitions'
+    ws.append(['company', 'sales_unit', 'core_product', 'country', 'country_name', 'segments',
+               'excluded_kinds', 'min_population', 'notes'])
+    ws.append(['Company A', 'Unit 1', 'Product X', 'BE', 'België', 'Local government',
+               'City district', 5000, 'be'])
+    ws.append(['Company A', 'Unit 1', 'Product X', 'NL', 'Nederland', 'Local government', None,
+               10000, 'nl'])
+    wb.create_sheet('match_overrides').append(['accountid', 'entity_id', 'reason'])
+    wb.save(p)
+    products = pd.DataFrame([('Company A', 'Unit 1', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p, update=True)
+    t = pd.read_excel(p, sheet_name='tam_definitions', dtype=object).set_index('country')
+    assert t.at['BE', 'regions'] == 'Vlaanderen; Brussel; Wallonie'
+    assert pd.isna(t.at['NL', 'regions'])
+    assert (t.at['BE', 'segments'], t.at['BE', 'excluded_kinds'], t.at['BE', 'min_population'],
+            t.at['BE', 'notes']) == ('Local government', 'City district', 5000, 'be')
+    assert (t.at['NL', 'min_population'], t.at['NL', 'notes']) == (10000, 'nl')
+    assert len(t) == len(COUNTRIES)
+
+
+def test_update_appends_by_column_name(tmp_path):
+    # Business zette regions zelf achteraan: nieuwe rijen moeten op naam gevuld worden
+    from openpyxl import Workbook
+    p = tmp_path / 't.xlsx'
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'tam_definitions'
+    ws.append(['company', 'sales_unit', 'core_product', 'country', 'country_name', 'segments',
+               'excluded_kinds', 'min_population', 'notes', 'regions'])
+    ws.append(['Company A', 'Unit 1', 'Product X', 'BE', 'België', 'Local government', None,
+               None, None, 'Vlaanderen'])
+    wb.create_sheet('match_overrides').append(['accountid', 'entity_id', 'reason'])
+    wb.save(p)
+    products = pd.DataFrame([('Company A', 'Unit 1', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p, update=True)
+    t = pd.read_excel(p, sheet_name='tam_definitions', dtype=object).set_index('country')
+    assert t.at['BE', 'regions'] == 'Vlaanderen'
+    assert t.at['NL', 'country_name'] == 'Nederland' and pd.isna(t.at['NL', 'segments'])
+    assert pd.isna(t.at['NL', 'regions'])
+
+
+def test_regions_values_validated(tmp_path):
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    make_template(df, path)
+    _fill(path, {('Product X', 'BE'): {'segments': 'Local government',
+                                       'regions': 'wallonië; Vlaams'},
+                 ('Product X', 'NL'): {'segments': 'Local government', 'regions': 'Vlaanderen'}})
+    with pytest.raises(TemplateError) as e:
+        read_template(path)
+    msg = str(e.value)
+    assert "onbekende waarde 'Vlaams' in regions" in msg
+    assert 'regions alleen voor BE, niet voor NL' in msg
+    assert 'wallonië' not in msg

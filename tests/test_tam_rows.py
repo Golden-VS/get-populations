@@ -63,3 +63,25 @@ def test_notes_copied_to_last_column():
     df = build_tam_rows(e, [definition(notes='alleen grote gemeenten')], {})
     assert TAM_ROW_COLUMNS[-1] == 'notes'
     assert df.iloc[0]['notes'] == 'alleen grote gemeenten'
+
+
+def test_regions_filter_belgian_entities():
+    e = ents(dict(entity_id='BE-NIS-44021', name='Gent', country='BE', kind='be_gemeente',
+                  population=270000, be_region='Vlaanderen'),
+             dict(entity_id='BE-NIS-62063', name='Luik', country='BE', kind='be_gemeente',
+                  population=195000, be_region='Wallonie'),
+             dict(entity_id='BE-HAND-PZ-X', name='Zone X', country='BE', kind='be_politiezone',
+                  population=50000, be_region='Brussel; Wallonie'),
+             dict(entity_id='BE-HAND-FOD-BOSA', name='BOSA', country='BE', kind='be_fod',
+                  population=None))
+    segs = ['Local government', 'Public safety & emergency', 'National government']
+    d = definition(country='BE', segments=segs, min_population=None,
+                   regions=['Vlaanderen', 'Brussel'])
+    df = build_tam_rows(e, [d], {}).set_index('name')
+    assert df.at['Gent', 'in_tam'] == 'yes' and df.at['Gent', 'be_region'] == 'Vlaanderen'
+    assert df.at['Luik', 'in_tam'] == 'no - excluded region'
+    assert df.at['Luik', 'in_tam_reason'] == 'gewest niet in regions: Wallonie'
+    assert df.at['Zone X', 'in_tam'] == 'yes'      # deels Brussel: telt mee
+    assert df.at['BOSA', 'in_tam'] == 'yes'        # federaal: nooit weg op gewest
+    all_be = build_tam_rows(e, [definition(country='BE', segments=segs, min_population=None)], {})
+    assert set(all_be['in_tam']) == {'yes'}         # leeg regions = heel Belgie

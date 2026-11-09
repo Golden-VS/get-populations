@@ -547,3 +547,24 @@ call; the user can narrow it).
   changed. Compatible kinds: `land` and `ministerie` types include the new
   national kinds; `onbekend` goes to pass 2 as everywhere.
 - **Template**: `--update` adds rows for the new countries.
+
+## 16. Addition: Belgian regions per product (2026-11-09)
+
+Many products are not sold in Wallonia (French-speaking), and some not in
+Brussels. The template gets a column `regions` (after `country_name`), filled
+only on BE rows with `Vlaanderen; Brussel; Wallonie` by default; the business
+removes what does not apply. Empty means all of Belgium; values on other
+countries are an error.
+
+Every BE entity gets `be_region` (`tam/regions.py`): from the NIS code
+(municipalities, provinces), fixed per source (Gewest/Gemeenschap hand rows,
+Antwerp districts, SPW intercommunales = Wallonie, Brussels intercommunales =
+Brussel), else the union of its members' regions (also same_as, repeated for
+cooperations of cooperations), else Vlaanderen for the remaining OP-dump rows.
+Federal services (FOD/POD) get none and never drop out. An entity drops out
+(`no - excluded region`) only when none of its regions is selected. The TAM
+sheet carries `be_region` so Power BI can slice on it.
+
+The tool reads template columns by heading, so the column can also be added by
+hand to a shared template while the business is filling it in.
+

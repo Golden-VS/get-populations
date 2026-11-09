@@ -23,6 +23,7 @@ from tam.config import KIND_TO_SEGMENT
 from tam.entities import (
     SourceBundle, SourceStatus, _is_empty, apply_country_totals, apply_member_population,
 )
+from tam.regions import apply_be_regions
 
 log = logging.getLogger(__name__)
 
@@ -396,6 +397,7 @@ def build_master(cache, loaders: list[tuple[str, Callable]] | None = None) -> So
     muni_pop = _municipal_population(entities, extras.get('municipal_population'))
     memberships = _check_memberships(merged.memberships, entity_ids, muni_pop, warnings)
     aliases = _check_aliases(merged.aliases, entity_ids, warnings)
+    entities = apply_be_regions(entities, memberships, warnings)
 
     entities, sum_warnings = apply_member_population(entities, memberships, muni_pop)
     for w in sum_warnings:

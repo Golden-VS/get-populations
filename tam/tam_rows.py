@@ -1,9 +1,11 @@
 """TAM-rijen per definitie: welke entiteiten horen bij welk product en land."""
 import pandas as pd
 
+from tam.regions import split_regions
+
 # notes (uit het sjabloon) als laatste kolom, zodat de vaste kolommen hun plaats houden
 TAM_ROW_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'entity_id', 'name',
-                   'detailed_segment', 'population', 'in_tam', 'in_tam_reason', 'matched_accounts',
+                   'detailed_segment', 'be_region', 'population', 'in_tam', 'in_tam_reason', 'matched_accounts',
                    'notes']
 
 
@@ -15,6 +17,10 @@ def _nl(n) -> str:
 def _status(row, definition) -> tuple[str, str]:
     if row['detailed_segment'] in definition.excluded_kinds:
         return 'no - excluded kind', f"uitgesloten soort: {row['detailed_segment']}"
+    # Gewest: alleen als regions is ingevuld en de entiteit een gewest heeft (FOD's niet)
+    entity_regions = split_regions(row.get('be_region'))
+    if definition.regions and entity_regions and not entity_regions & set(definition.regions):
+        return 'no - excluded region', f"gewest niet in regions: {row['be_region']}"
     cutoff = definition.min_population
     pop = row['population']
     missing = pop is None or pd.isna(pop) or pop == ''
@@ -41,6 +47,7 @@ def build_tam_rows(entities: pd.DataFrame, definitions: list,
                 'core_product': d.core_product, 'country': d.country,
                 'entity_id': e['entity_id'], 'name': e['name'],
                 'detailed_segment': e['detailed_segment'],
+                'be_region': e.get('be_region', ''),
                 'population': None if pop is None or pd.isna(pop) or pop == '' else pop,
                 'in_tam': status, 'in_tam_reason': reason,
                 'matched_accounts': match_counts.get(e['entity_id'], 0),

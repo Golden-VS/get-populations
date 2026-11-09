@@ -1,7 +1,7 @@
 # CRM Population Enrichment - Project Checkpoint
 
 > Handoff document for continuing this project in a fresh Claude Code session.
-> Last updated: 2026-11-04
+> Last updated: 2026-11-09
 
 ---
 
@@ -195,14 +195,20 @@ Run `git log --oneline` for the complete list.
 
 ## TAM / whitespace feature (added 2026-10-27)
 
-**Status (2026-11-04)**: DONE and merged to `main` (branch
+**Status (2026-11-09)**: DONE and merged to `main` (branch
 `feature/tam-whitespace` merged 2026-10-28; still exists locally and on GitHub,
-can be deleted). 279 tests green (`venv/bin/pytest -q -W error::FutureWarning`).
+can be deleted). 297 tests green (`venv/bin/pytest -q -W error::FutureWarning`).
 Spec: `doc/specs/2026-10-26-tam-whitespace-design.md` (sections 14 and 15 win
 where they differ); plan `doc/plans/2026-10-27-tam-whitespace.md`. Operator
 runbook: MANUAL section 7. Board/business explainer (2 pages, generic):
 `doc/TAM_WHITESPACE_OVERVIEW.pdf` (regenerate with
 `tools/make_tam_overview_pdf.py`).
+
+**Workflow (agreed with the user 2026-11-09)**: `doc/TAM_WORKFLOW.md` (who
+does what: business fills the shared template -> user uploads -> dry run ->
+`factors_todo.xlsx` back to the business until no factor is missing -> real
+run -> review -> Power BI). The tool never writes into the shared template;
+layout changes are made by hand in the shared file (see that doc).
 
 **Where we are / next step**: the template `tam_template.xlsx` (local,
 gitignored, 224 rows = 28 core products x 8 countries, sorted by company,
@@ -217,8 +223,9 @@ template errors + AI estimate), then the real run (add `--refresh-cache` for
 the yearly refresh), then review: low-confidence `CRM matches`, `CRM unmatched`
 filtered on `crm_segment_category` Governmental/Unknown, corrections via the
 template's `match_overrides`. Latest output: `tam_2026-10-28.xlsx` (local).
-Power BI (factors per detailed_segment, ARPU per inhabitant, membership
-coverage, churn phase 2) is built by the user's BI side, outside this repo.
+Power BI (ARPU per inhabitant, membership coverage, churn phase 2) is built by
+the user's BI side, outside this repo; the price factor now comes from the
+template (see below).
 
 **Changes after the merge (2026-10-28 .. 11-04, all on main)**: Excel fix
 (text starting with '=' was written as a formula; `a5856b4`), Aruba population
@@ -231,6 +238,33 @@ overheidsorganisatie met gelijkende naam" + `crm_segment` /
 code (code stays the key), template keeps Excel tables in sync and never
 writes overlapping column widths (`9c75b6a`), template rows sorted
 (`44abcfd`), CBS edition fallback (`c83337a`, see open item 0).
+
+**Changes 2026-11-09 (all on main; spec sections 16-18)**:
+- `b095a9e` regions: template column `regions` (BE only, prefilled
+  `Vlaanderen; Brussel; Wallonie`, business removes regions; status
+  `no - excluded region`), entity column `be_region` (`tam/regions.py`);
+  template columns are read by heading, `--update` appends rows by heading.
+  `1debeef` added the status to the run summary.
+- `5604ba5` OCMW / CPAS is its own organisation (user: a gemeente and its OCMW
+  can each have a contract): one `BE-OCMW-<NIS>` per gemeente (565), kind
+  `be_ocmw`, detailed segment `Municipal social services (OCMW)` under Local
+  government (included by default, user's choice), population same as the
+  gemeente, KBO of Flemish OCMWs from the OP dump. `ocmw` accounts match only
+  `be_ocmw` (299/301 by rule; 'OCMW Tongeren' to AI; 'OCMW Ravels' holds the
+  KBO of Welzijnszorg Kempen in the CRM, needs a CRM fix or override).
+- `be0a7e3` / `324fd0d` / `026e2ea` factors: template tab `factors`
+  (`sales_unit`, `core_product`, `country`, `detailed_segment`, `factor`,
+  `notes`), prefilled with a default row per detailed segment (Municipality = 1,
+  rest empty); empty key = all; most specific wins (core_product > sales_unit >
+  country); rows without factor ignored. TAM sheet gets a `factor` column; a
+  missing factor stays EMPTY (= 0 in Power BI), deliberately not 1x (user
+  agreed: 1x would double-count provinces/cooperations).
+- `3c5ff7c` `factors_todo.xlsx` from dry run and real run: kinds inside a TAM
+  without a factor, per sales unit / product / country.
+- Shared template status: the user added the `regions` column by hand; still to
+  copy in: `factors` tab, `lists` OCMW row, `instructies` rows (texts in
+  `tam/template.py` INSTRUCTIONS). Local `tam_template.xlsx` is up to date
+  (backup before factors in `backup_2026-06/`).
 
 **What it is**: `tam_build.py` builds a master list of all governmental bodies
 in NL/BE/DE from official registers, plus hand tables for AW/CW/SX/BQ/SR (spec

@@ -33,8 +33,11 @@ OUTPUT_INSTRUCTIONS = [
     ('  in_tam_reason', 'Waarom deze status (bv. inwoners 7.512 < 10.000).'),
     ('  matched_accounts', 'Aantal gekoppelde CRM-accounts. 0 = geen account, dus zeker '
      'whitespace; >0 = account bestaat, Power BI bepaalt via de omzet of het blackspace is.'),
+    ('  factor', 'Prijsfactor uit het tabblad factors van het template (meest specifieke '
+     'regel voor dit kernproduct, land en detailed_segment). Leeg = nog geen factor ingevuld. '
+     'Waarde in Power BI = population x ARPU per inwoner x factor.'),
     ('  population', 'Vertegenwoordigd inwonertal (samenwerkingen: som van de deelnemende '
-     'gemeenten). Basis voor ARPU per inwoner x factor per detailed_segment.'),
+     'gemeenten). Basis voor ARPU per inwoner x factor.'),
     (None, None),
     ('Blad CRM matches', 'Een rij per gekoppeld CRM-account. Koppel in Power BI de omzet op '
      'accountid en via entity_id aan het blad TAM.'),

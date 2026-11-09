@@ -480,8 +480,32 @@ An unknown value stops the run with a message that names the row and the
 value, so typos are caught before anything costs money. Two filled rows for
 the same company, core product and country also stop the run (they would count
 the TAM twice). The segment values are
-a fixed list (also the join key for the factor table in Power BI), so do not
+a fixed list (also the key of the `factors` sheet), so do not
 rename them between years.
+
+**Sheet `factors`: price factor per kind of organisation.** The factor is the
+share of the municipal amount per inhabitant that a kind of organisation pays
+for a core product in a country (for example `0.1` for a province). It differs
+per company, core product, country and detailed segment, but most of it is
+shared, so the sheet holds rules where an empty cell means "all":
+
+| Column | Rule |
+|---|---|
+| `company`, `core_product` | Optional; empty = all. Must match `tam_definitions` exactly. |
+| `country` | Optional country code; empty = all countries. |
+| `detailed_segment` | Required; a value from column `detailed_segment` of sheet `lists`. |
+| `factor` | Required; a number >= 0. A decimal comma (`0,1`) is fine. |
+| `notes` | Optional free text (for example what the factor is based on). |
+
+When several rules fit, the most specific one wins: a rule with a core product
+beats one with only a country, which beats one with only a company, which beats
+a rule with all three empty. Example: `Province = 0.1` for everything, plus
+`BE / Province = 0.2`, plus `<product> / Province = 0.3`. The same combination
+twice stops the run. The tool writes the resulting `factor` into every row of
+sheet `TAM`; rows with `in_tam = yes` and no factor are counted in the run log
+warnings. A template without this sheet still works (all factors empty);
+`--update` adds the sheet, and it can also be copied by hand into a shared
+template.
 
 Sheet `match_overrides` is described under "Reviewing the matches" below.
 
@@ -541,7 +565,7 @@ The result is `tam_<date>.xlsx` (gitignored) with these sheets. Wherever a count
 | Sheet | Contents | Use in Power BI |
 |---|---|---|
 | `instructies` | First tab: a short Dutch guide to every sheet, the `in_tam` statuses, `match_pass`/`confidence` and how to correct matches | Not loaded; for readers |
-| `TAM` | One row per (template row x entity in the selected segments): company, sales unit, core product, country, `entity_id`, name, `detailed_segment`, `be_region`, `population`, `in_tam`, `in_tam_reason`, number of matched accounts, `notes` from the template | The white space base |
+| `TAM` | One row per (template row x entity in the selected segments): company, sales unit, core product, country, `entity_id`, name, `detailed_segment`, `be_region`, `population`, `factor` (from sheet `factors`), `in_tam`, `in_tam_reason`, number of matched accounts, `notes` from the template | The white space base |
 | `CRM matches` | One row per matched account: `entity_id`, `accountid`, CRM name, `match_pass`, `match_reason`, `confidence` | Join revenue per `accountid` to `entity_id`, then to `TAM` (black space) |
 | `Entities` | The full master list with all attributes (kind, region, `be_region` = Vlaanderen / Brussel / Wallonie for Belgium, ids, population method, source and date) | Audit, optional dimension table |
 | `Memberships` | Cooperation `entity_id` -> member `entity_id`, with the cooperation's `detailed_segment` and join date | Members of a paying cooperation count as covered |
@@ -627,10 +651,11 @@ other accounts go to the AI step.
 
 ### Notes for the Power BI model
 
-- **White space value** = `population x municipal ARPU per inhabitant x factor
-  per detailed segment` (for example a province pays roughly 10% of the
-  municipal rate per inhabitant). The business defines and maintains the
-  factor table, keyed on `detailed_segment`.
+- **White space value** = `population x municipal ARPU per inhabitant x factor`
+  (for example a province pays roughly 10% of the municipal rate per
+  inhabitant). The factor is in column `factor` of sheet `TAM`, resolved per
+  company, core product, country and detailed segment from the template's
+  `factors` sheet, so no separate factor table is needed in Power BI.
 - Rows with `in_tam = unknown - population missing` have no euro value; Power
   BI decides how to show them.
 - Populations are not deduplicated between levels: a province and its

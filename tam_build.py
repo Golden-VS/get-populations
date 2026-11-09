@@ -35,7 +35,7 @@ from tam.matching import (
 )
 from tam.output import build_run_log, check_known_detailed, write_output
 from tam.sources.common import SourceCache
-from tam.tam_rows import build_tam_rows
+from tam.tam_rows import build_tam_rows, missing_factors
 from tam.template import TemplateError, load_products, make_template, read_template
 
 log = logging.getLogger('tam_build')
@@ -367,6 +367,10 @@ def run_build(args) -> int:
         'overrides geen match': sum(1 for e in forced.values() if not e),
         'niet gematcht': len(unmatched),
     }
+    factor_gap = missing_factors(tam)
+    if factor_gap:
+        log.warning(factor_gap)
+        warnings.append(factor_gap)
     run_log = build_run_log(
         inputs={
             'datum': date.today().isoformat(), 'model': MODEL, 'sjabloon': args.template,

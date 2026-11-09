@@ -142,7 +142,7 @@ def test_output_has_instructions_first_and_fitted_widths(tmp_path):
 
 def test_country_name_next_to_country_in_output(tmp_path):
     f = frames()
-    f['tam'] = pd.DataFrame([['C', 'S', 'P', 'NL', 'NL-1', 'A', 'Municipality', '', 100, 'yes', '', 0, '']],
+    f['tam'] = pd.DataFrame([['C', 'S', 'P', 'NL', 'NL-1', 'A', 'Municipality', '', 100, 1.0, 'yes', '', 0, '']],
                             columns=TAM_ROW_COLUMNS)
     f['unmatched'] = pd.DataFrame([['a1', 'x', 'BQ', '', None, 'r']], columns=UNM_COLS)
     p = tmp_path / 'o.xlsx'

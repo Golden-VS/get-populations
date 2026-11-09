@@ -212,7 +212,8 @@ def build():
          'For each organisation in the white space: <b>inhabitants x ARPU per inhabitant x '
          'factor</b>. The ARPU comes from what municipalities pay us today. The factor corrects '
          'for the type of organisation: a province pays far less per inhabitant than a '
-         'municipality (for example 10%). The business sets these factors in Power BI.'),
+         'municipality (for example 10%). The business sets these factors per core product '
+         'and country in the same template.'),
         ('Winnable per year',
          'Customers do not switch every year. We use our own average churn: with 10% churn a '
          'customer stays about 10 years, and we assume the same for competitors. So about '

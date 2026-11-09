@@ -95,3 +95,17 @@ def test_every_status_is_listed_for_the_summary():
     import re
     used = set(re.findall(r"return '([^']+)'", inspect.getsource(tam_rows._status)))
     assert used <= set(IN_TAM_STATUSES) and 'no - excluded region' in used
+
+
+def test_factor_per_detailed_segment_and_missing_report():
+    from tam.tam_rows import missing_factors
+    e = ents(dict(entity_id='NL-CBS-1', name='A', country='NL', kind='nl_gemeente', population=20000),
+             dict(entity_id='NL-CBS-2', name='Wijk', country='NL', kind='nl_stadsdeel', population=20000),
+             dict(entity_id='NL-CBS-3', name='Klein', country='NL', kind='nl_gemeente', population=5))
+    df = build_tam_rows(e, [definition(factors={'Municipality': 1.0})], {}).set_index('name')
+    assert df.at['A', 'factor'] == 1.0 and pd.isna(df.at['Wijk', 'factor'])
+    msg = missing_factors(df.reset_index())
+    # alleen in_tam yes telt: Klein valt onder de ondergrens
+    assert msg.startswith('1 van 2 TAM-rijen (in_tam yes) zonder factor, 1 combinaties')
+    assert 'C / P / NL / City district (1)' in msg
+    assert missing_factors(df[df.index == 'A'].reset_index()) is None

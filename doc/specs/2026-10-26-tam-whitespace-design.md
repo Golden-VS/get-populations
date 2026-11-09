@@ -434,8 +434,7 @@ python tam_build.py --template tam_template.xlsx [--crm step1b_segmented.xlsx]
 
 - White space value in Power BI = `population x municipal ARPU per inhabitant x
   factor per detailed segment` (e.g. a province pays ~10% of the municipal rate
-  per inhabitant). The business defines and maintains the factor table in
-  Power BI, keyed on `detailed_segment`.
+  per inhabitant). The factors live in the template (section 18).
 - Rows with `in_tam = unknown - population missing` have no euro value; Power
   BI decides how to show them.
 - Black space uses recurring revenue only (`Billing Type = Recurring`), applied
@@ -592,4 +591,21 @@ separate one with OCMW X), so the OCMW is a separate buyer.
   counting each gemeente once.
 - Step 2 (population enrichment) is unchanged: an OCMW account still gets its
   gemeente's population there.
+
+## 18. Addition: price factors in the template (2026-11-09)
+
+Replaces the Power BI factor table of section 11: the factor differs per
+company, core product, country and detailed segment, and the business already
+maintains everything else in the template.
+
+- New sheet `factors` (`company`, `core_product`, `country`,
+  `detailed_segment`, `factor`, `notes`), right after `tam_definitions`. Empty
+  company / core_product / country = all. Most specific rule wins, ranked by
+  (core_product set, country set, company set). Duplicates, unknown values and
+  factors < 0 stop the run; a decimal comma is accepted.
+- The resolved factor goes into a `factor` column on every TAM row (empty when
+  no rule fits); the run log lists `in_tam = yes` rows without a factor.
+- An old template without the sheet still reads (no factors); `--update` adds
+  an empty sheet and never touches an existing one, so the sheet can be copied
+  by hand into the shared template.
 

@@ -5,7 +5,7 @@ from tam.regions import split_regions
 
 # notes (uit het sjabloon) als laatste kolom, zodat de vaste kolommen hun plaats houden
 TAM_ROW_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'entity_id', 'name',
-                   'detailed_segment', 'be_region', 'population', 'in_tam', 'in_tam_reason', 'matched_accounts',
+                   'detailed_segment', 'be_region', 'population', 'factor', 'in_tam', 'in_tam_reason', 'matched_accounts',
                    'notes']
 
 
@@ -33,6 +33,21 @@ def _status(row, definition) -> tuple[str, str]:
     return 'yes', f'inwoners {_nl(pop)} >= {_nl(cutoff)}'
 
 
+def missing_factors(tam: pd.DataFrame) -> str | None:
+    """Melding voor het Run log: TAM-rijen (in_tam yes) zonder factor, of None."""
+    yes = tam[tam['in_tam'] == 'yes']
+    missing = yes[yes['factor'].isna()]
+    if not len(missing):
+        return None
+    combos = (missing.groupby(['company', 'core_product', 'country', 'detailed_segment'])
+              .size().reset_index(name='n'))
+    shown = '; '.join(f'{r.company} / {r.core_product} / {r.country} / {r.detailed_segment} ({r.n})'
+                      for r in combos.head(20).itertuples())
+    more = f' (+{len(combos) - 20} meer)' if len(combos) > 20 else ''
+    return (f'{len(missing)} van {len(yes)} TAM-rijen (in_tam yes) zonder factor, '
+            f'{len(combos)} combinaties: {shown}{more}')
+
+
 def build_tam_rows(entities: pd.DataFrame, definitions: list,
                    match_counts: dict) -> pd.DataFrame:
     rows = []
@@ -49,6 +64,7 @@ def build_tam_rows(entities: pd.DataFrame, definitions: list,
                 'detailed_segment': e['detailed_segment'],
                 'be_region': e.get('be_region', ''),
                 'population': None if pop is None or pd.isna(pop) or pop == '' else pop,
+                'factor': d.factors.get(e['detailed_segment']),
                 'in_tam': status, 'in_tam_reason': reason,
                 'matched_accounts': match_counts.get(e['entity_id'], 0),
                 'notes': d.notes,

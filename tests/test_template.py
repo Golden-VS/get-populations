@@ -392,3 +392,88 @@ def test_regions_values_validated(tmp_path):
     assert "onbekende waarde 'Vlaams' in regions" in msg
     assert 'regions alleen voor BE, niet voor NL' in msg
     assert 'wallonië' not in msg
+
+
+def _factor_rows(path, rows):
+    from openpyxl import load_workbook
+    wb = load_workbook(path)
+    ws = wb['factors']
+    for r in rows:
+        ws.append(r)
+    wb.save(path)
+
+
+def test_factors_sheet_created_after_definitions_and_kept_on_update(tmp_path):
+    from openpyxl import load_workbook
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    make_template(df, path)
+    names = load_workbook(path).sheetnames
+    assert names.index('factors') == names.index('tam_definitions') + 1
+    assert [c.value for c in load_workbook(path)['factors'][1]] == [
+        'company', 'core_product', 'country', 'detailed_segment', 'factor', 'notes']
+    _factor_rows(path, [[None, None, None, 'Province', 0.1, 'x']])
+    make_template(df, path, update=True)
+    ws = load_workbook(path)['factors']
+    assert [c.value for c in ws[2]] == [None, None, None, 'Province', 0.1, 'x']
+
+
+def test_update_adds_factors_sheet_to_old_template(tmp_path):
+    from openpyxl import Workbook, load_workbook
+    p = tmp_path / 't.xlsx'
+    wb = Workbook()
+    wb.active.title = 'tam_definitions'
+    wb.active.append(['company', 'sales_unit', 'core_product', 'country', 'country_name',
+                      'segments', 'excluded_kinds', 'min_population', 'notes'])
+    wb.create_sheet('match_overrides').append(['accountid', 'entity_id', 'reason'])
+    wb.save(p)
+    products = pd.DataFrame([('Company A', 'Unit 1', 'Product X')],
+                            columns=['company', 'sales_unit', 'core_product'])
+    make_template(products, p, update=True)
+    assert 'factors' in load_workbook(p).sheetnames
+    assert read_template(p)[0] == []   # niets ingevuld, geen fout
+
+
+def test_factors_most_specific_rule_wins(tmp_path):
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    make_template(df, path)
+    _fill(path, {('Product X', 'NL'): {'segments': 'Local government; Regional government'},
+                 ('Product X', 'BE'): {'segments': 'Local government; Regional government'},
+                 ('Product Y', 'NL'): {'segments': 'Local government; Regional government'}})
+    _factor_rows(path, [
+        [None, None, None, 'Province', 0.1, 'iedereen'],
+        [None, None, 'BE', 'Province', '0,2', 'komma mag'],
+        ['Company A', 'Product X', None, 'Province', 0.3, 'product wint van land'],
+        [None, None, None, 'Municipality', 1, None],
+        ['Company B', None, None, 'Municipality', 0.8, None],
+    ])
+    defs = {(d.core_product, d.country): d for d in read_template(path)[0]}
+    assert defs[('Product X', 'NL')].factors == {'Province': 0.3, 'Municipality': 1.0}
+    assert defs[('Product X', 'BE')].factors == {'Province': 0.3, 'Municipality': 1.0}
+    assert defs[('Product Y', 'NL')].factors == {'Province': 0.1, 'Municipality': 0.8}
+
+
+def test_factors_validated(tmp_path):
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    make_template(df, path)
+    _factor_rows(path, [
+        ['Company Q', 'Product Z', 'XX', 'Provincie', 'veel', None],
+        [None, None, None, None, None, 'alleen notitie'],
+        [None, None, None, 'Province', -1, None],
+        [None, None, None, 'Municipality', 1, None],
+        [None, None, None, 'Municipality', 2, None],
+    ])
+    with pytest.raises(TemplateError) as e:
+        read_template(path)
+    msg = str(e.value)
+    for part in ("rij 2: onbekende waarde 'Company Q' in company",
+                 "rij 2: onbekende waarde 'Product Z' in core_product",
+                 "rij 2: onbekende waarde 'XX' in country",
+                 "rij 2: onbekende waarde 'Provincie' in detailed_segment",
+                 "rij 2: onbekende waarde 'veel' in factor",
+                 'rij 3: detailed_segment ontbreekt', 'rij 3: factor ontbreekt',
+                 "rij 4: onbekende waarde '-1' in factor",
+                 'rij 6: dubbele regel voor (alle) / (alle) / (alle) / Municipality (ook in rij 5)'):
+        assert part in msg, part

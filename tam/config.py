@@ -89,7 +89,8 @@ KIND_TO_SEGMENT = {
     'sr_district': ('Local government', 'District administration'),
 }
 
-IN_TAM_STATUSES = ['yes', 'no - below cutoff', 'no - excluded kind', 'unknown - population missing']
+IN_TAM_STATUSES = ['yes', 'no - below cutoff', 'no - excluded kind', 'no - excluded region',
+                   'unknown - population missing']
 
 # AW/CW/SX = Aruba, Curacao, Sint Maarten; BQ = Caribisch Nederland (Bonaire, Sint Eustatius,
 # Saba); SR = Suriname (spec sectie 15)

@@ -85,3 +85,13 @@ def test_regions_filter_belgian_entities():
     assert df.at['BOSA', 'in_tam'] == 'yes'        # federaal: nooit weg op gewest
     all_be = build_tam_rows(e, [definition(country='BE', segments=segs, min_population=None)], {})
     assert set(all_be['in_tam']) == {'yes'}         # leeg regions = heel Belgie
+
+
+def test_every_status_is_listed_for_the_summary():
+    # de samenvatting van tam_build telt per status uit IN_TAM_STATUSES
+    import inspect
+    from tam import tam_rows
+    from tam.config import IN_TAM_STATUSES
+    import re
+    used = set(re.findall(r"return '([^']+)'", inspect.getsource(tam_rows._status)))
+    assert used <= set(IN_TAM_STATUSES) and 'no - excluded region' in used

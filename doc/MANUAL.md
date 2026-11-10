@@ -477,7 +477,10 @@ filled in. The business fills in:
 | `notes` | Free text, copied to the output (last column of sheet `TAM`). |
 
 An unknown value stops the run with a message that names the row and the
-value, so typos are caught before anything costs money. Two filled rows for
+value (and the value probably meant, for example `'Police zonde'` -> `'Police
+zone'`), so typos are caught before anything costs money. Upper and lower case
+and double spaces do not matter (`Local Government` is read as
+`Local government`). Two filled rows for
 the same company, core product and country also stop the run (they would count
 the TAM twice). The segment values are
 a fixed list (also the key of the `factors` sheet), so do not

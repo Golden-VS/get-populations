@@ -1,4 +1,5 @@
 """Invoersjabloon (tam_template.xlsx): aanmaken, bijwerken, lezen en valideren."""
+import difflib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -376,6 +377,24 @@ def _split(v) -> list[str]:
     return [] if _blank(v) else [p.strip() for p in str(v).split(';') if p.strip()]
 
 
+def _fold(text) -> str:
+    return re.sub(r'\s+', ' ', str(text)).strip().casefold()
+
+
+def _canon(value, allowed) -> str | None:
+    """Vaste waarde ongeacht hoofdletters en dubbele spaties ('Local Government' ->
+    'Local government'); None als onbekend."""
+    return {_fold(a): a for a in allowed}.get(_fold(value))
+
+
+def _unknown(where: str, value, column: str, allowed) -> str:
+    """Foutmelding voor een onbekende waarde, met de waarschijnlijk bedoelde waarde erbij."""
+    by_fold = {_fold(a): a for a in allowed}
+    close = difflib.get_close_matches(_fold(value), list(by_fold), n=1, cutoff=0.8)
+    hint = f" (bedoel je '{by_fold[close[0]]}'?)" if close else ''
+    return f"{where}: onbekende waarde '{value}' in {column}{hint}"
+
+
 def _number(v) -> float | None:
     """Getal uit een cel; tekst met komma als decimaalteken ('0,1') mag ook. None = ongeldig."""
     if isinstance(v, bool):
@@ -420,8 +439,11 @@ def _read_factors(path: Path, definitions: pd.DataFrame, errors: list[str]) -> l
             bad(rule['country'], 'country')
         if not rule['detailed_segment']:
             errors.append(f'factors rij {xl}: detailed_segment ontbreekt')
-        elif rule['detailed_segment'] not in all_detailed():
-            bad(rule['detailed_segment'], 'detailed_segment')
+        elif _canon(rule['detailed_segment'], all_detailed()) is None:
+            errors.append(_unknown(f'factors rij {xl}', rule['detailed_segment'],
+                                   'detailed_segment', all_detailed()))
+        else:
+            rule['detailed_segment'] = _canon(rule['detailed_segment'], all_detailed())
         raw = row.get('factor')
         factor = _number(raw)
         if factor is None or factor < 0 or factor != factor:
@@ -474,12 +496,12 @@ def read_template(path: Path) -> tuple[list[TamDefinition], pd.DataFrame]:
         def bad(value, column):
             errors.append(f"tam_definitions rij {xl}: onbekende waarde '{value}' in {column}")
 
-        for s in segments:
-            if s not in SEGMENTS:
-                bad(s, 'segments')
-        for k in excluded:
-            if k not in all_detailed():
-                bad(k, 'excluded_kinds')
+        for value, column, allowed in [(s, 'segments', SEGMENTS) for s in segments] + \
+                [(k, 'excluded_kinds', all_detailed()) for k in excluded]:
+            if _canon(value, allowed) is None:
+                errors.append(_unknown(f'tam_definitions rij {xl}', value, column, allowed))
+        segments = [_canon(s, SEGMENTS) or s for s in segments]
+        excluded = [_canon(k, all_detailed()) or k for k in excluded]
         country = str(row.get('country')).strip()
         if country not in COUNTRIES:
             bad(country, 'country')

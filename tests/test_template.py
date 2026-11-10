@@ -511,3 +511,20 @@ def test_factors_validated(tmp_path):
                  'rij 7: dubbele regel voor (alle) / (alle) / (alle) / Municipality (ook in rij 6)'):
         assert part in msg, part
     assert 'rij 3' not in msg
+
+
+def test_case_insensitive_values_and_typo_hints(tmp_path):
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    make_template(df, path)
+    _fill(path, {('Product X', 'NL'): {'segments': 'Local Government;  inter-municipal cooperation',
+                                       'excluded_kinds': 'other joint arrangement'}})
+    d = next(x for x in read_template(path)[0] if x.country == 'NL')
+    assert d.segments == ['Local government', 'Inter-municipal cooperation']
+    assert d.excluded_kinds == ['Other joint arrangement']
+    _fill(path, {('Product X', 'NL'): {'excluded_kinds': 'Special-pupose association; Police zonde'}})
+    with pytest.raises(TemplateError) as e:
+        read_template(path)
+    msg = str(e.value)
+    assert "'Special-pupose association' in excluded_kinds (bedoel je 'Special-purpose association'?)" in msg
+    assert "'Police zonde' in excluded_kinds (bedoel je 'Police zone'?)" in msg

@@ -531,8 +531,9 @@ list, does the free rule-based matching and prints the **estimated AI cost**
 against the cap. It makes no AI call and writes no output file. It needs no API key. Check the
 estimate, then run for real.
 
-Both the dry run and the real run also write **`factors_todo.xlsx`** (gitignored):
-one row per kind of organisation (`detailed_segment`) that falls inside a TAM
+Both the dry run and the real run also write **`factors_todo.xlsx`** (gitignored),
+with a Dutch `instructies` tab for the business (step by step, with an example)
+and one row per kind of organisation (`detailed_segment`) that falls inside a TAM
 (`in_tam = yes`) but has no factor yet, with the number of organisations and
 per sales unit / core product / country where it occurs. Hand it to the
 business: they fill in the default row of that kind in the template's

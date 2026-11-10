@@ -148,27 +148,85 @@ def write_output(path: Path, *, tam, matches, entities, memberships, unmatched, 
     return [path]
 
 
-def write_factors_todo(path: Path, todo: pd.DataFrame) -> None:
-    """factors_todo.xlsx: welke soorten in de TAM nog een factor missen (ook als er niets
-    ontbreekt, zodat een oud bestand nooit blijft staan met verouderde inhoud)."""
-    from openpyxl.styles import Font
+# Instructieblad (eerste tabblad) van factors_todo.xlsx, voor de business.
+FACTORS_TODO_INSTRUCTIONS = [
+    ('Factoren aanvullen: zo gebruik je dit bestand', None),
+    (None, None),
+    ('Wat is dit?', 'Een lijst van soorten organisaties (detailed segments) die in de TAM van '
+     'minstens een product vallen, maar nog geen prijsfactor hebben in het template. Zonder '
+     'factor blijven deze organisaties wel in de TAM (ze tellen mee in het aantal), maar '
+     'rekent Power BI hun bedrag als 0: ze tellen niet mee in de waarde van de whitespace.'),
+    ('Wat is een factor?', 'Het deel van het gemeentelijke bedrag per inwoner dat deze soort '
+     'betaalt. 1 = betaalt per inwoner net zoveel als een gemeente; 0,1 = 10% daarvan. '
+     'Gebruik een komma als decimaalteken (0,1).'),
+    (None, None),
+    ('Zo werk je de lijst af', None),
+    ('  Stap 1', 'Open tabblad factors_todo. Elke rij is een soort (kolom detailed_segment); '
+     'kolom wat valt eronder zegt welke organisaties dat zijn.'),
+    ('  Stap 2', 'Kolom waar: bij welke sales unit / kernproduct / land deze soort in de TAM '
+     'zit, met tussen haakjes het aantal organisaties. Kolom organisaties is het totaal.'),
+    ('  Stap 3', 'Open het gedeelde template, tabblad factors. Zoek de rij met dezelfde '
+     'detailed_segment waarvan sales_unit, core_product en country leeg zijn: de standaardrij. '
+     'Vul daar de factor in. Staat die rij er niet, voeg hem toe (alleen detailed_segment en '
+     'factor invullen). Die ene factor geldt dan voor alle producten en landen.'),
+    ('  Stap 4', 'Betaalt deze soort bij een bepaalde sales unit, product of land anders? Voeg '
+     'dan in tabblad factors een extra rij toe met die sales_unit, dat core_product en/of dat '
+     'country ingevuld en de afwijkende factor. Die rij gaat voor de standaardrij.'),
+    ('  Stap 5', 'Hoort deze soort helemaal niet bij een product? Vul dan geen factor in, maar '
+     'zet de soort in tabblad tam_definitions in de kolom excluded_kinds van dat product en '
+     'land. Dan valt hij uit de TAM.'),
+    ('  Stap 6', 'Klaar? Laat het weten. Er volgt een nieuwe controle met een nieuwe lijst; '
+     'staat er "Alle soorten in de TAM hebben een factor", dan is het af.'),
+    (None, None),
+    ('Voorbeeld', 'Rij: detailed_segment County-level city, waar "Sales unit A / Product X / '
+     'DE (107)". Dat zijn Duitse steden die ook Kreis-taken hebben (bv. Keulen). Betalen ze '
+     'per inwoner als een gemeente, vul dan in tabblad factors op de standaardrij van '
+     'County-level city factor 1 in. Betalen ze voor Product X maar de helft: voeg een rij '
+     'toe met core_product Product X, detailed_segment County-level city, factor 0,5.'),
+    (None, None),
+    ('Kolommen', None),
+    ('  segment', 'Het hoofdsegment waartoe de soort hoort.'),
+    ('  detailed_segment', 'De soort organisatie; dezelfde naam als in tabblad factors en lists '
+     'van het template.'),
+    ('  wat valt eronder', 'Uitleg en landen, zoals in tabblad lists van het template.'),
+    ('  organisaties', 'Aantal TAM-rijen (organisatie x product x land) zonder factor.'),
+    ('  waar', 'Per sales unit / kernproduct / land het aantal organisaties.'),
+    (None, None),
+    ('Let op', 'Een rij "(samenwerking, soort nog te bepalen door de AI)" komt alleen voor in '
+     'een controle zonder AI: de soort van die samenwerkingen wordt pas in de echte run '
+     'bepaald. Daar hoeft niets voor ingevuld te worden.'),
+]
 
+
+def write_factors_todo(path: Path, todo: pd.DataFrame) -> None:
+    """factors_todo.xlsx: instructieblad plus welke soorten in de TAM nog een factor missen
+    (ook als er niets ontbreekt, zodat een oud bestand nooit blijft staan met verouderde
+    inhoud)."""
+    from openpyxl.styles import Alignment, Font
+
+    from tam.template import DETAILED_HELP
+
+    def help_text(detailed):
+        landen, uitleg = DETAILED_HELP.get(detailed, ('', ''))
+        return f'{uitleg} ({landen})' if landen else uitleg
+
+    sheet = todo.copy()
+    sheet.insert(2, 'wat valt eronder', sheet['detailed_segment'].map(help_text))
     path = Path(path)
     with pd.ExcelWriter(path, engine='openpyxl') as writer:
-        todo.to_excel(writer, sheet_name='factors_todo', index=False)
+        sheet.to_excel(writer, sheet_name='factors_todo', index=False)
         ws = writer.sheets['factors_todo']
         for cell in ws[1]:
             cell.font = Font(bold=True)
-        note = ws.max_row + 2
-        if len(todo):
-            ws.cell(note, 1).value = ('Vul per soort de factor in op de standaardrij (sales_unit, '
-                                      'core_product en country leeg) van het tabblad factors in '
-                                      'het template. Wijkt een product of land af, voeg daar dan '
-                                      'een rij met die kolom ingevuld aan toe.')
-        else:
-            ws.cell(note, 1).value = 'Alle soorten in de TAM hebben een factor.'
+        if not len(todo):
+            ws.cell(3, 1).value = 'Alle soorten in de TAM hebben een factor.'
         ws.freeze_panes = 'A2'
+        ws.auto_filter.ref = f'A1:{chr(64 + ws.max_column)}{max(ws.max_row, 1)}'
         autofit_columns(ws)
+        for row in ws.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment = Alignment(vertical='top', wrap_text=cell.column_letter == 'F')
+        write_instructions(writer.book, FACTORS_TODO_INSTRUCTIONS)
 
 
 def _require(df, columns, what):

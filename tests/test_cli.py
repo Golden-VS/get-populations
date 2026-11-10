@@ -178,6 +178,10 @@ def test_dry_run_writes_no_output(tmp_path, env, capsys):
     # wel de factorlijst: het template heeft alleen Municipality = 1 als standaard
     todo = pd.read_excel(tmp_path / 'factors_todo.xlsx', sheet_name='factors_todo')
     assert 'Municipality' not in set(todo['detailed_segment'].dropna())
+    from openpyxl import load_workbook
+    assert load_workbook(tmp_path / 'factors_todo.xlsx').sheetnames == ['instructies', 'factors_todo']
+    assert list(todo.columns) == ['segment', 'detailed_segment', 'wat valt eronder',
+                                  'organisaties', 'waar']
     assert 'Factoren:' in out and 'factors_todo.xlsx' in out
 
 

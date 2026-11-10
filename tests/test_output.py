@@ -157,3 +157,14 @@ def test_country_name_next_to_country_in_output(tmp_path):
     cols = list(unm.columns)
     assert cols[cols.index('tam_country') + 1] == 'country_name'
     assert unm.at[0, 'country_name'].startswith('Caribisch Nederland')
+
+
+def test_factors_todo_empty_says_complete(tmp_path):
+    from openpyxl import load_workbook
+    from tam.output import write_factors_todo
+    from tam.tam_rows import FACTOR_TODO_COLUMNS
+    p = tmp_path / 'todo.xlsx'
+    write_factors_todo(p, pd.DataFrame(columns=FACTOR_TODO_COLUMNS))
+    wb = load_workbook(p)
+    assert wb.sheetnames == ['instructies', 'factors_todo']
+    assert wb['factors_todo'].cell(3, 1).value == 'Alle soorten in de TAM hebben een factor.'

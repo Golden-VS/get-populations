@@ -396,51 +396,92 @@ def test_regions_values_validated(tmp_path):
 
 
 def _factor_rows(path, rows, *, clear=True):
+    """Tabblad factors vervangen door een tabblad in het regelformaat (6 kolommen, lege
+    sleutel = alle); de lezer accepteert beide formaten."""
     from openpyxl import load_workbook
     wb = load_workbook(path)
-    ws = wb['factors']
-    if clear:   # standaardrijen weg, zodat de test alleen eigen regels heeft
-        ws.delete_rows(2, ws.max_row)
+    idx = wb.sheetnames.index('factors')
+    del wb['factors']
+    ws = wb.create_sheet('factors', idx)
+    ws.append(['sales_unit', 'core_product', 'country', 'detailed_segment', 'factor', 'notes'])
     for r in rows:
         ws.append(r)
     wb.save(path)
 
 
-def test_factors_sheet_created_after_definitions_and_kept_on_update(tmp_path):
-    from openpyxl import load_workbook
-    df, _ = _products(tmp_path)
-    path = tmp_path / 'tpl.xlsx'
-    make_template(df, path)
-    names = load_workbook(path).sheetnames
-    assert names.index('factors') == names.index('tam_definitions') + 1
-    assert [c.value for c in load_workbook(path)['factors'][1]] == [
-        'sales_unit', 'core_product', 'country', 'detailed_segment', 'factor', 'notes']
-    ws = load_workbook(path)['factors']
-    preset = {r[3]: r[4] for r in ws.iter_rows(min_row=2, values_only=True)}
-    from tam.config import all_detailed
-    assert set(preset) == all_detailed() and ws.max_row == len(all_detailed()) + 1
-    assert preset['Municipality'] == 1 and preset['Province'] is None
-    assert read_template(path)[0] == []    # lege factoren blokkeren niets
-    _factor_rows(path, [['Unit 1', None, None, 'Province', 0.1, 'x']], clear=False)
-    make_template(df, path, update=True)
-    ws = load_workbook(path)['factors']
-    assert [c.value for c in ws[ws.max_row]] == ['Unit 1', None, None, 'Province', 0.1, 'x']
-    assert ws.max_row == len(all_detailed()) + 2      # niets bijgevuld of weggehaald
+def _grid(path):
+    return pd.read_excel(path, sheet_name='factors', dtype=object)
 
 
-def test_update_fills_empty_factors_sheet(tmp_path):
-    # tabblad met alleen een kopregel (zo eerder gekopieerd): bij --update vooraf gevuld
+def test_factors_grid_one_row_per_product_country_kind(tmp_path):
     from openpyxl import load_workbook
+    from tam.template import GRID_COLUMNS
     df, _ = _products(tmp_path)
     path = tmp_path / 'tpl.xlsx'
     make_template(df, path)
     wb = load_workbook(path)
-    wb['factors'].delete_rows(2, wb['factors'].max_row)
+    assert wb.sheetnames.index('factors') == wb.sheetnames.index('tam_definitions') + 1
+    g = _grid(path)
+    assert list(g.columns) == GRID_COLUMNS
+    # zonder masterlijst: de soorten per land uit DETAILED_HELP
+    nl = g[(g.core_product == 'Product X') & (g.country == 'NL')]
+    assert {'Municipality', 'Province', 'Water authority'} <= set(nl.detailed_segment)
+    assert 'County' not in set(nl.detailed_segment)              # alleen DE
+    assert not g.duplicated(['sales_unit', 'core_product', 'country', 'detailed_segment']).any()
+    assert set(g.loc[g.detailed_segment == 'Municipality', 'factor']) == {1}
+    assert g.loc[g.detailed_segment == 'Province', 'factor'].isna().all()
+    ws = wb['factors']
+    r = next(i for i in range(2, ws.max_row + 1)
+             if ws.cell(i, 3).value == 'NL' and ws.cell(i, 5).value == 'Municipality')
+    f = ws.cell(r, 9).value
+    assert f'$A{r}' in f and f'$C{r}' in f
+    assert f.startswith('=IF(AND(COUNTIFS(') and "'tam_definitions'!" in f
+    assert '"*Local government*"' in f and '"*; Municipality;*"' in f
+    assert len(ws.conditional_formatting) == 2
+    assert read_template(path)[0] == []       # niets in tam_definitions: geen definities, geen fout
+
+
+def test_factors_grid_examples_and_counts_from_entities(tmp_path):
+    from tam.entities import ENTITY_COLUMNS, new_entity
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    rows = [new_entity(entity_id=f'NL-CBS-{i}', name=n, country='NL', kind='nl_gemeente',
+                       population=p) for i, (n, p) in enumerate(
+            [('Aa', 10), ('Bb', 300), ('Cc', 200), ('Dd', 100)])]
+    ents = pd.DataFrame(rows, columns=ENTITY_COLUMNS)
+    make_template(df, path, entities=ents)
+    g = _grid(path)
+    assert set(g.country) == {'NL'} and set(g.detailed_segment) == {'Municipality'}
+    row = g[g.core_product == 'Product X'].iloc[0]
+    assert row['voorbeelden'] == 'Bb, Cc, Dd, ...' and row['aantal in land'] == 4
+
+
+def test_update_keeps_filled_factors_and_converts_old_rules(tmp_path):
+    from openpyxl import load_workbook
+    df, _ = _products(tmp_path)
+    path = tmp_path / 'tpl.xlsx'
+    make_template(df, path)
+    # oud regelformaat (zoals het gedeelde template had): standaardregels + een specifieke
+    _factor_rows(path, [[None, None, None, 'Province', 0.1, None],
+                        [None, 'Product Y', 'NL', 'Province', '0,3', 'eigen']])
+    make_template(df, path, update=True)
+    g = _grid(path).set_index(['core_product', 'country', 'detailed_segment'])
+    assert g.at[('Product X', 'NL', 'Province'), 'factor'] == 0.1
+    assert g.at[('Product Y', 'NL', 'Province'), 'factor'] == 0.3
+    assert g.at[('Product Y', 'NL', 'Province'), 'notes'] == 'eigen'
+    assert g.at[('Product X', 'NL', 'Municipality'), 'factor'] == 1   # altijd standaard 1
+    # nieuwe lijst: een ingevulde cel blijft staan na nog een update
+    wb = load_workbook(path)
+    ws = wb['factors']
+    head = [c.value for c in ws[1]]
+    r = next(i for i in range(2, ws.max_row + 1)
+             if ws.cell(i, 2).value == 'Product X' and ws.cell(i, 3).value == 'BE'
+             and ws.cell(i, 5).value == 'Province')
+    ws.cell(r, head.index('factor') + 1).value = 0.05
     wb.save(path)
     make_template(df, path, update=True)
-    ws = load_workbook(path)['factors']
-    assert ws.max_row > 30 and [c.value for c in ws[1]][:5] == [
-        'sales_unit', 'core_product', 'country', 'detailed_segment', 'factor']
+    g = _grid(path).set_index(['core_product', 'country', 'detailed_segment'])
+    assert g.at[('Product X', 'BE', 'Province'), 'factor'] == 0.05
 
 
 def test_update_adds_factors_sheet_to_old_template(tmp_path):

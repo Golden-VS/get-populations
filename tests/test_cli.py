@@ -68,8 +68,10 @@ def _crm_csv(tmp_path, extra=()):
 
 def _template(tmp_path, *, fill=True, bad=False, overrides=()):
     path = tmp_path / 'tpl.xlsx'
-    assert tam_build.main(['--make-template', '--products', str(_products(tmp_path)),
-                           '--config', str(_config(tmp_path)), '--template', str(path)]) == 0
+    # direct, niet via de CLI: --make-template bouwt de masterlijst en telt dan mee in env
+    from tam.template import load_products, make_template
+    products, _ = load_products(_products(tmp_path), tam_build.load_config(_config(tmp_path)))
+    make_template(products, path)
     wb = load_workbook(path)
     ws = wb['tam_definitions']
     if fill:
@@ -111,7 +113,7 @@ def _run_args(tmp_path, tpl, *extra, crm_extra=()):
             '--output', str(tmp_path / 'out.xlsx'), *extra]
 
 
-def test_make_template_end_to_end(tmp_path, capsys):
+def test_make_template_end_to_end(tmp_path, env, capsys):
     tpl = tmp_path / 'tpl.xlsx'
     rc = tam_build.main(['--make-template', '--products', str(_products(tmp_path)),
                          '--config', str(_config(tmp_path)), '--template', str(tpl)])
@@ -122,7 +124,7 @@ def test_make_template_end_to_end(tmp_path, capsys):
     assert set(df['company']) == {'Company A'}
 
 
-def test_make_template_twice_needs_update(tmp_path, capsys):
+def test_make_template_twice_needs_update(tmp_path, env, capsys):
     args = ['--make-template', '--products', str(_products(tmp_path)),
             '--config', str(_config(tmp_path)), '--template', str(tmp_path / 'tpl.xlsx')]
     assert tam_build.main(args) == 0
@@ -175,14 +177,7 @@ def test_dry_run_writes_no_output(tmp_path, env, capsys):
     out = capsys.readouterr().out
     assert 'AI-schatting' in out
     assert 'Gemeente Aadorp' not in out
-    # wel de factorlijst: het template heeft alleen Municipality = 1 als standaard
-    todo = pd.read_excel(tmp_path / 'factors_todo.xlsx', sheet_name='factors_todo')
-    assert 'Municipality' not in set(todo['detailed_segment'].dropna())
-    from openpyxl import load_workbook
-    assert load_workbook(tmp_path / 'factors_todo.xlsx').sheetnames == ['instructies', 'factors_todo']
-    assert list(todo.columns) == ['segment', 'detailed_segment', 'wat valt eronder',
-                                  'organisaties', 'waar']
-    assert 'Factoren:' in out and 'factors_todo.xlsx' in out
+    assert 'Factoren:' in out
 
 
 def test_dry_run_without_key_makes_no_ai_call(tmp_path, env, capsys):

@@ -33,9 +33,9 @@ from tam.matching import (
     MATCH_COLUMNS, UNMATCHED_COLUMNS, apply_overrides, build_name_index, crm_in_scope, entities_by_country,
     estimate_matching_cost, load_crm, pass1, pass2, pass2_pending,
 )
-from tam.output import build_run_log, check_known_detailed, write_factors_todo, write_output
+from tam.output import build_run_log, check_known_detailed, write_output
 from tam.sources.common import SourceCache
-from tam.tam_rows import build_tam_rows, factor_todo, missing_factors
+from tam.tam_rows import build_tam_rows, missing_factors
 from tam.template import TemplateError, load_products, make_template, read_template
 
 log = logging.getLogger('tam_build')
@@ -206,8 +206,14 @@ def run_make_template(args) -> int:
     config = load_config(args.config)
     _require_file(args.products, 'Productbestand')
     products, strays = load_products(Path(args.products), config)
+    # masterlijst (uit de cache) voor tabblad factors: soorten per land, aantallen, voorbeelden
+    bundle = build_master(SourceCache(refresh=args.refresh_cache, offline=args.offline))
+    entities, _ = classify_cooperations(
+        bundle.entities, None, CostTracker(args.max_cost), use_ai=False, rules_only=True,
+        cache_path=CLASSIFY_CACHE, member_counts=_member_counts(bundle.memberships),
+        descriptions=bundle.extras.get('coop_descriptions') or {})
     try:
-        n = make_template(products, Path(args.template), update=args.update)
+        n = make_template(products, Path(args.template), update=args.update, entities=entities)
     except FileExistsError:
         raise UsageError(f'{args.template} bestaat al; gebruik --update om nieuwe rijen toe te '
                          f'voegen (ingevulde rijen blijven staan).')
@@ -229,16 +235,6 @@ def _read_template_or_exit(path: Path):
     except TemplateError as e:
         lines = str(e).splitlines()
         raise UsageError(f'Sjabloon {path} bevat {len(lines)} fout(en):\n' + '\n'.join(lines)) from e
-
-
-def _write_factor_todo(tam, entities, path) -> None:
-    todo = factor_todo(tam, entities)
-    write_factors_todo(Path(path), todo)
-    if len(todo):
-        print(f'Factoren: {len(todo)} soorten in de TAM zonder factor ({int(todo["organisaties"].sum())} '
-              f'TAM-rijen); zie {path}')
-    else:
-        print(f'Factoren: alle soorten in de TAM hebben een factor ({path})')
 
 
 def run_build(args) -> int:
@@ -313,8 +309,8 @@ def run_build(args) -> int:
         print('Let op: de schatting ligt boven het plafond; de run stopt netjes zodra het plafond '
               'bereikt is (caches blijven bewaard, volgende run gaat verder).')
     if args.dry_run:
-        _write_factor_todo(build_tam_rows(pre_entities, definitions, {}), pre_entities,
-                           args.factors_todo)
+        gap = missing_factors(build_tam_rows(pre_entities, definitions, {}))
+        print(f'Factoren: {gap}' if gap else 'Factoren: alle soorten in de TAM hebben een factor.')
         print('--dry-run: gestopt voor de AI-stap; geen uitvoerbestand geschreven.')
         return 0
 
@@ -383,7 +379,6 @@ def run_build(args) -> int:
     if factor_gap:
         log.warning(factor_gap)
         warnings.append(factor_gap)
-    _write_factor_todo(tam, entities, args.factors_todo)
     run_log = build_run_log(
         inputs={
             'datum': date.today().isoformat(), 'model': MODEL, 'sjabloon': args.template,
@@ -450,8 +445,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--template', default='tam_template.xlsx')
     p.add_argument('--crm', default='step1b_segmented.xlsx')
     p.add_argument('--output', default=f'tam_{date.today().isoformat()}.xlsx')
-    p.add_argument('--factors-todo', default='factors_todo.xlsx',
-                   help='lijst van soorten in de TAM zonder factor (dry-run en echte run)')
     p.add_argument('--refresh-cache', action='store_true', help='registerdownloads vernieuwen')
     p.add_argument('--offline', action='store_true', help='alleen gecachte downloads gebruiken')
     p.add_argument('--dry-run', action='store_true',

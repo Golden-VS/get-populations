@@ -488,35 +488,42 @@ rename them between years.
 
 **Sheet `factors`: price factor per kind of organisation.** The factor is the
 share of the municipal amount per inhabitant that a kind of organisation pays
-for a core product in a country (for example `0.1` for a province). It differs
-per sales unit, core product, country and detailed segment, but most of it is
-shared, so the sheet holds rules where an empty cell means "all". A new sheet
-starts with one default rule per detailed segment (sales unit, core product
-and country empty; factor empty except `Municipality = 1`, which holds by
-definition because the ARPU is the municipal amount per inhabitant):
+for a core product in a country (`1` = as much as a municipality, `0.1` = a
+tenth). The sheet is a ready-made fill-in list with one row per core product x
+country x kind of organisation that exists in that country (about 60 rows per
+product):
 
-| Column | Rule |
+| Column | Content |
 |---|---|
-| `sales_unit`, `core_product` | Optional; empty = all. Must match `tam_definitions` exactly. |
-| `country` | Optional country code; empty = all countries. |
-| `detailed_segment` | Required; a value from column `detailed_segment` of sheet `lists`. |
-| `factor` | A number >= 0; a decimal comma (`0,1`) is fine. Empty = the row is ignored (not filled in yet). |
-| `notes` | Optional free text (for example what the factor is based on). |
+| `sales_unit`, `core_product`, `country`, `country_name` | Which product and country (filter on these) |
+| `detailed_segment`, `soort organisatie`, `voorbeelden`, `aantal in land` | The kind, a Dutch explanation, the three largest examples and how many exist in that country (from the master list) |
+| `nodig?` | Formula: `ja` when this kind falls inside the product's TAM according to `tam_definitions` (segment chosen, kind not in `excluded_kinds`), else `nee`. Updates live while the business fills `tam_definitions` |
+| `factor` | The only column to fill in. Empty cells with `nodig? = ja` are yellow; rows with `nee` are grey |
+| `notes` | Optional free text |
 
-When several rules fit, the most specific one wins, ranked by core product,
-then sales unit, then country: a rule with a core product beats one with only
-a sales unit, which beats one with only a country, which beats the default.
-A rule with sales unit and country beats one with only the sales unit.
-Example: `Province = 0.1` (default), `BE / Province = 0.2`,
-`<product> / Province = 0.3`. The same combination twice stops the run. The tool writes the resulting `factor` into every row of
-sheet `TAM`. Only kinds inside a product's TAM (selected segments, not
-excluded) need a factor. A TAM row without a fitting rule keeps an empty factor
-on purpose, not 1: in Power BI it then counts as 0, because 1x would add the
-inhabitants of provinces and cooperations on top of their municipalities. The
-run log warnings list every combination with `in_tam = yes` and no factor. A template without this sheet still works (all factors empty);
-`--update` adds the sheet (or fills one that only has the heading row) and
-never touches a sheet with rules; it can also be copied by hand into a shared
-template.
+The instruction for the business is one line: filter on your sales unit and
+fill in the yellow cells. `Municipality` is prefilled with `1` (true by
+definition, because the ARPU is the municipal amount per inhabitant). The
+formula matches a kind only as a whole value between semicolons (so `County`
+is not found inside `County-level city`) and ignores upper/lower case; its
+result was checked against the tool's own logic on all 1,708 rows of the
+first business template.
+
+The tool writes the resulting `factor` into every row of sheet `TAM`. A TAM row
+without a factor keeps an empty factor on purpose, not 1: those organisations
+stay in the TAM (they count in the number of organisations) but count as 0 in
+the value, because 1x would add the inhabitants of provinces and cooperations
+on top of their municipalities. The run log warnings and the dry run list
+every combination with `in_tam = yes` and no factor.
+
+`--make-template` and `--make-template --update` (re)build this sheet from the
+master list (cache) and keep every factor already filled in. The reader also
+still accepts the older rule format (empty sales unit / product / country =
+all, most specific rule wins: core product, then sales unit, then country);
+`--update` converts such a sheet into the list. Because the sheet holds
+formulas that refer to `tam_definitions`, it cannot be copied by hand into
+another workbook; a shared template gets it through a one-time swap (see
+`doc/TAM_WORKFLOW.md`).
 
 Sheet `match_overrides` is described under "Reviewing the matches" below.
 
@@ -531,17 +538,7 @@ list, does the free rule-based matching and prints the **estimated AI cost**
 against the cap. It makes no AI call and writes no output file. It needs no API key. Check the
 estimate, then run for real.
 
-Both the dry run and the real run also write **`factors_todo.xlsx`** (gitignored),
-with a Dutch `instructies` tab for the business (step by step, with an example)
-and one row per kind of organisation (`detailed_segment`) that falls inside a TAM
-(`in_tam = yes`) but has no factor yet, with the number of organisations and
-per sales unit / core product / country where it occurs. Hand it to the
-business: they fill in the default row of that kind in the template's
-`factors` sheet, and add a specific row only where a product or country
-differs. When nothing is missing the file says so. In a dry run, cooperations
-that still wait for AI classification appear as one group
-"(samenwerking, soort nog te bepalen door de AI)"; option `--factors-todo
-<file>` writes the list elsewhere. In the yearly run, force fresh register
+The dry run also prints which kinds inside a TAM still lack a factor. In the yearly run, force fresh register
 downloads:
 
 ```bash

@@ -1,5 +1,6 @@
 """Invoersjabloon (tam_template.xlsx): aanmaken, bijwerken, lezen en valideren."""
 import difflib
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,14 +12,19 @@ from tam.config import COUNTRIES, COUNTRY_NAMES, DETAILED_SEGMENTS, SEGMENTS, al
 from tam.regions import BE_REGIONS, canonical_region, join_regions
 from tam.xlsx_util import autofit_columns, sync_tables, write_instructions
 
+log = logging.getLogger(__name__)
+
 DEF_COLUMNS = ['company', 'sales_unit', 'core_product', 'country', 'country_name', 'regions',
                'segments', 'excluded_kinds', 'min_population', 'notes']
 # Landen met een regions-kolom en de standaardwaarde (alles aan; business haalt weg)
 REGION_COUNTRIES = {'BE': BE_REGIONS}
 OVERRIDE_COLUMNS = ['accountid', 'entity_id', 'reason']
 FACTOR_SHEET = 'factors'
+# Kolommen die de lezer gebruikt; het tabblad heeft er hulpkolommen bij (GRID_COLUMNS)
 FACTOR_COLUMNS = ['sales_unit', 'core_product', 'country', 'detailed_segment', 'factor', 'notes']
 FACTOR_KEYS = ['sales_unit', 'core_product', 'country']
+GRID_COLUMNS = ['sales_unit', 'core_product', 'country', 'country_name', 'detailed_segment',
+                'soort organisatie', 'voorbeelden', 'aantal in land', 'nodig?', 'factor', 'notes']
 ALWAYS_IGNORED = ['_Other', 'Undefined']
 ENTITY_ID_RE = re.compile(r'^(' + '|'.join(COUNTRIES) + r')-[A-Z]+-.+$')
 
@@ -139,36 +145,20 @@ INSTRUCTIONS = [
      'Leeg = geen ondergrens.'),
     ('  notes', 'Optioneel. Vrije tekst; wordt meegenomen naar de uitvoer.'),
     (None, None),
-    ('Tabblad factors', 'Prijsfactor per soort organisatie: welk deel van het gemeentelijke '
-     'bedrag per inwoner betaalt deze soort voor een kernproduct in een land (bv. 0,1 = 10%). '
-     'Power BI rekent: inwoners x ARPU per inwoner x factor. Een rij per regel; een lege '
-     'sales_unit, core_product of country betekent "alle". Vooraf staat er een rij per detailed '
-     'segment met die drie kolommen leeg: vul daar de standaardfactor in (Municipality = 1 '
-     'per definitie). Wijkt een sales unit, product of land af, voeg dan een rij toe met '
-     'sales_unit, '
-     'core_product en/of country ingevuld; zo gaat "Product X / Province = 0,3" voor de '
-     'standaard "Province = 0,1". Volgorde bij meerdere passende rijen: een rij met '
-     'core_product wint, daarna een rij met sales_unit, daarna een rij met country. Een rij '
-     'met meerdere kolommen ingevuld (bv. sales_unit en country) gaat voor een rij met '
-     'alleen een van die kolommen.'),
-    ('  sales_unit', 'Optioneel. Leeg = alle sales units. Anders exact zoals in '
-     'tam_definitions.'),
-    ('  core_product', 'Optioneel. Leeg = alle kernproducten. Anders exact zoals in '
-     'tam_definitions.'),
-    ('  country', 'Optioneel. Landcode (NL, BE, DE, AW, CW, SX, BQ, SR). Leeg = alle landen.'),
-    ('  detailed_segment', 'Verplicht. Een waarde uit kolom B van tabblad lists, bv. Province.'),
-    ('  factor', 'Een getal van 0 of meer, bv. 1 voor gemeenten, 0,1 voor provincies. Leeg = '
-     'deze rij telt (nog) niet mee.'),
-    ('  notes', 'Optioneel. Vrije tekst, bv. waar de factor op gebaseerd is.'),
-    ('  Welke factoren nodig?', 'Alleen voor soorten die in de TAM van een product vallen: binnen '
-     'de gekozen segments en niet in excluded_kinds. Een uitgesloten soort of een soort in een '
-     'land zonder ingevulde rij heeft geen factor nodig.'),
-    ('  Geen factor = 0', 'Valt een soort wel in de TAM maar is er geen passende rij met een '
-     'factor, dan blijft de factor leeg. Er wordt NIET met 1 gerekend: in Power BI telt die '
-     'soort dan als 0 (geen bedrag). Dat is bewust: met 1 zouden bv. provincies en '
-     'samenwerkingen hun inwoners nog eens bovenop de gemeenten tellen. Het Run log noemt elke '
-     'combinatie (sales unit / product / land / soort) die nog een factor mist.'),
-    ('  Dubbel', 'Dezelfde combinatie twee keer invullen geeft een foutmelding.'),
+    ('Tabblad factors', 'Hier vul je de prijsfactor in: hoeveel betaalt een soort organisatie per '
+     'inwoner, vergeleken met een gemeente? 1 = evenveel als een gemeente, 0,5 = de helft, '
+     '0,1 = een tiende. Power BI rekent: inwoners x bedrag per inwoner x factor.'),
+    ('  Zo vul je het in', 'Filter kolom sales_unit op jouw sales unit (en eventueel country op een '
+     'land). Vul alle GELE cellen in kolom factor in. Klaar.'),
+    ('  Waarom geel?', 'Een cel wordt geel als die soort organisatie bij dit product en land in '
+     'de TAM valt (kolom nodig? = ja, volgt vanzelf uit wat je in tam_definitions kiest) en er nog '
+     'geen factor staat. Grijze rijen (nodig? = nee) hoef je niet in te vullen.'),
+    ('  Kolommen', 'soort organisatie en voorbeelden laten zien om welke organisaties het gaat; '
+     'aantal in land is hoeveel er in dat land zijn. Alleen kolom factor (en eventueel notes) '
+     'invullen, de rest niet wijzigen.'),
+    ('  Geen factor', 'Een gele cel die leeg blijft telt in Power BI als 0: die organisaties '
+     'blijven in de TAM, maar zonder bedrag. Hoort een soort helemaal niet bij een product, zet '
+     'hem dan in tam_definitions bij excluded_kinds; dan wordt de rij grijs.'),
     (None, None),
     ('Tabblad lists', 'Naslag: een rij per detailed segment, met ernaast het hoofdsegment '
      'waartoe het hoort, de landen waar het voorkomt en wat eronder valt. Filter kolom A '
@@ -291,32 +281,154 @@ def _ensure_regions(ws) -> None:
 
 
 # Gemeente = 1 per definitie: de ARPU is het bedrag per inwoner dat gemeenten betalen
-_FACTOR_PRESET = {'Municipality': (1, 'per definitie: ARPU per inwoner komt van gemeenten')}
+_FACTOR_PRESET = [{'sales_unit': '', 'core_product': '', 'country': '',
+                   'detailed_segment': 'Municipality', 'factor': 1.0,
+                   'notes': 'per definitie: ARPU per inwoner komt van gemeenten'}]
 
 
-def _ensure_factors_sheet(wb) -> None:
-    """Tabblad factors direct na tam_definitions, als het er nog niet is, vooraf gevuld met een
-    standaardregel (sales_unit/core_product/country leeg) per detailed segment; factor leeg behalve
-    Municipality. Een bestaand tabblad met regels blijft ongemoeid; een leeg (alleen kopregel)
-    wordt gevuld."""
-    from openpyxl.styles import Font
+def _kinds_by_country(entities) -> dict[str, dict[str, tuple[int, str]]]:
+    """land -> {detailed_segment: (aantal, voorbeelden)}. Zonder entiteiten: de landen uit
+    DETAILED_HELP, zonder aantallen en voorbeelden."""
+    out: dict[str, dict[str, tuple[int, str]]] = {c: {} for c in COUNTRIES}
+    if entities is None:
+        for detailed, (landen, _) in DETAILED_HELP.items():
+            for c in (x.strip() for x in landen.split(',')):
+                if c in out:
+                    out[c][detailed] = (None, '')
+        return out
+    e = entities[entities['detailed_segment'].fillna('') != '']
+    e = e.assign(_pop=pd.to_numeric(e['population'], errors='coerce').fillna(-1))
+    for (country, detailed), group in e.groupby(['country', 'detailed_segment']):
+        if country not in out:
+            continue
+        names = list(group.sort_values(['_pop', 'name'], ascending=[False, True])['name'].head(3))
+        more = ', ...' if len(group) > 3 else ''
+        out[country][detailed] = (len(group), ', '.join(str(n) for n in names) + more)
+    return out
 
+
+def _sheet_rules(ws) -> list[dict]:
+    """Regels uit een bestaand tabblad factors (oud of nieuw formaat), zonder validatie:
+    alleen rijen met een geldige factor en een bekende soort."""
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    header = [str(h).strip() if h is not None else '' for h in rows[0]]
+    rules = []
+    for r in rows[1:]:
+        values = dict(zip(header, r))
+        factor = None if _blank(values.get('factor')) else _number(values.get('factor'))
+        detailed = _canon(values.get('detailed_segment') or '', all_detailed())
+        if factor is None or factor < 0 or detailed is None:
+            continue
+        rule = {c: '' if _blank(values.get(c)) else str(values.get(c)).strip() for c in FACTOR_KEYS}
+        rule.update(detailed_segment=detailed, factor=factor,
+                    notes='' if _blank(values.get('notes')) else str(values.get('notes')))
+        rules.append(rule)
+    return rules
+
+
+def _column_letters(ws, names) -> dict[str, str]:
+    from openpyxl.utils import get_column_letter
+    header = [c.value for c in ws[1]]
+    return {n: get_column_letter(header.index(n) + 1) for n in names}
+
+
+def _need_formula(row: int, segment: str, detailed: str, cols: dict[str, str]) -> str:
+    """'ja' als deze soort in de TAM valt volgens tam_definitions (segment gekozen, soort niet
+    uitgesloten), anders 'nee'. COUNTIFS is hoofdletterongevoelig; de soort wordt alleen als hele
+    waarde tussen puntkomma's gezocht, zodat 'County' niet in 'County-level city' gevonden wordt."""
+    t = "'tam_definitions'!"
+
+    def col(name):
+        return f'{t}${cols[name]}:${cols[name]}'
+
+    base = (f'{col("sales_unit")},$A{row},{col("core_product")},$B{row},'
+            f'{col("country")},$C{row}')
+    patterns = [detailed, f'{detailed};*', f'*;{detailed}', f'*; {detailed}',
+                f'*;{detailed};*', f'*; {detailed};*']
+    array = '{' + ','.join(f'"{p}"' for p in patterns) + '}'
+    chosen = f'COUNTIFS({base},{col("segments")},"*{segment}*")>0'
+    excluded = f'SUM(COUNTIFS({base},{col("excluded_kinds")},{array}))=0'
+    return f'=IF(AND({chosen},{excluded}),"ja","nee")'
+
+
+def _factor_grid(wb, entities=None) -> None:
+    """(Her)bouw tabblad factors als invullijst: een rij per kernproduct x land x soort die in dat
+    land voorkomt. Kolom 'nodig?' rekent met een formule uit of de soort in de TAM valt (volgens
+    tam_definitions); lege factoren met nodig = ja worden geel. Bestaande factoren (ook
+    standaardregels van het oude formaat) worden overgenomen via de meest specifieke regel."""
+    from openpyxl.formatting.rule import FormulaRule
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    rules = _FACTOR_PRESET
+    index = 1 + wb.sheetnames.index('tam_definitions')
     if FACTOR_SHEET in wb.sheetnames:
-        ws = wb[FACTOR_SHEET]
-        if any(any(v not in (None, '') for v in r) for r in ws.iter_rows(min_row=2, values_only=True)):
-            return
-        ws.delete_rows(1, ws.max_row)
-    else:
-        ws = wb.create_sheet(FACTOR_SHEET, wb.sheetnames.index('tam_definitions') + 1)
-    ws.append(FACTOR_COLUMNS)
+        old = wb[FACTOR_SHEET]
+        rules = _sheet_rules(old)
+        if not any(r['detailed_segment'] == 'Municipality' for r in rules):
+            rules = rules + _FACTOR_PRESET
+        index = wb.sheetnames.index(FACTOR_SHEET)
+        del wb[FACTOR_SHEET]
+    defs = wb['tam_definitions']
+    cols = _column_letters(defs, ['sales_unit', 'core_product', 'country', 'segments',
+                                  'excluded_kinds'])
+    header = [c.value for c in defs[1]]
+    pos = {n: header.index(n) for n in ('sales_unit', 'core_product', 'country')}
+    kinds = _kinds_by_country(entities)
+    segment_of = {d: seg for seg in SEGMENTS for d in DETAILED_SEGMENTS[seg]}
+
+    ws = wb.create_sheet(FACTOR_SHEET, index)
+    ws.append(GRID_COLUMNS)
     for cell in ws[1]:
         cell.font = Font(bold=True)
-    for segment in SEGMENTS:
-        for detailed in DETAILED_SEGMENTS[segment]:
-            factor, note = _FACTOR_PRESET.get(detailed, (None, None))
-            ws.append([None, None, None, detailed, factor, note])
-    ws.freeze_panes = 'A2'
-    ws.auto_filter.ref = f'A1:F{ws.max_row}'
+    used = set()
+    for values in defs.iter_rows(min_row=2, values_only=True):
+        unit, product, country = (str(values[pos[c]] or '').strip() for c in
+                                  ('sales_unit', 'core_product', 'country'))
+        if not product or country not in kinds:
+            continue
+        best = _resolve(rules, unit, product, country)
+        for segment in SEGMENTS:
+            for detailed in DETAILED_SEGMENTS[segment]:
+                if detailed not in kinds[country]:
+                    continue
+                count, examples = kinds[country][detailed]
+                landen, uitleg = DETAILED_HELP.get(detailed, ('', ''))
+                rule = best.get(detailed)
+                factor, notes = (None, None)
+                if rule is not None:
+                    used.add(id(rule))
+                    factor, notes = rule['factor'], rule.get('notes') or None
+                r = ws.max_row + 1
+                ws.append([unit, product, country, COUNTRY_NAMES.get(country, ''), detailed,
+                           uitleg, examples, count,
+                           _need_formula(r, segment_of[detailed], detailed, cols), factor, notes])
+    lost = [r for r in rules if id(r) not in used and r is not _FACTOR_PRESET[0]]
+    if lost:
+        log.warning('%d factorregels passen bij geen enkele rij van de lijst en zijn niet '
+                    'overgenomen: %s', len(lost),
+                    '; '.join(f"{r['sales_unit'] or '*'} / {r['core_product'] or '*'} / "
+                              f"{r['country'] or '*'} / {r['detailed_segment']} = {r['factor']}"
+                              for r in lost[:20]))
+    last = ws.max_row
+    ws.freeze_panes = 'D2'
+    ws.auto_filter.ref = f'A1:K{last}'
+    if last > 1:
+        ws.conditional_formatting.add(
+            f'J2:J{last}', FormulaRule(formula=['AND($I2="ja",$J2="")'],
+                                       fill=PatternFill('solid', fgColor='FFF2CC')))
+        ws.conditional_formatting.add(
+            f'A2:K{last}', FormulaRule(formula=['$I2="nee"'], font=Font(color='A6A6A6')))
+        dv = DataValidation(type='decimal', operator='greaterThanOrEqual', formula1='0',
+                            allow_blank=True, showErrorMessage=True, errorTitle='Factor',
+                            error='Vul een getal van 0 of meer in, bv. 1 of 0,1.')
+        ws.add_data_validation(dv)
+        dv.add(f'J2:J{last}')
+    for cell in ws['J'][1:]:
+        cell.number_format = '0.###'
+    wb.calculation.fullCalcOnLoad = True   # 'nodig?' meteen uitrekenen bij openen
 
 
 def _product_rows(products: pd.DataFrame):
@@ -326,7 +438,11 @@ def _product_rows(products: pd.DataFrame):
                    _default_regions(country), None, None, None, None]
 
 
-def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -> int:
+def make_template(products: pd.DataFrame, path: Path, *, update: bool = False,
+                  entities: pd.DataFrame | None = None) -> int:
+    """Nieuw sjabloon, of (update) nieuwe productrijen toevoegen en de afgeleide tabbladen
+    (factors, lists, instructies) opnieuw opbouwen. `entities` (masterlijst met detailed_segment)
+    levert de soorten per land met aantallen en voorbeelden voor tabblad factors."""
     path = Path(path)
     if path.exists() and not update:
         raise FileExistsError(f'{path} bestaat al; gebruik update om rijen toe te voegen')
@@ -339,7 +455,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
         for row in rows:
             ws.append(row)
         _sort_definitions(ws)
-        _ensure_factors_sheet(wb)
+        _factor_grid(wb, entities)
         wb.create_sheet('match_overrides').append(OVERRIDE_COLUMNS)
         _lists_sheet(wb)
         _instructions_sheet(wb)
@@ -361,7 +477,7 @@ def make_template(products: pd.DataFrame, path: Path, *, update: bool = False) -
             ws.append([values.get(h) for h in header])
             added += 1
     _sort_definitions(ws)
-    _ensure_factors_sheet(wb)
+    _factor_grid(wb, entities)
     _lists_sheet(wb)
     _instructions_sheet(wb)
     _fit_columns(wb)
@@ -459,18 +575,24 @@ def _read_factors(path: Path, definitions: pd.DataFrame, errors: list[str]) -> l
     return rules
 
 
-def resolve_factors(rules: list[dict], d: TamDefinition) -> dict[str, float]:
-    """detailed_segment -> factor voor een definitie: de meest specifieke passende regel
-    (ingevuld core_product gaat voor sales_unit, dat gaat voor country)."""
+def _resolve(rules: list[dict], sales_unit, core_product, country) -> dict[str, dict]:
+    """detailed_segment -> de meest specifieke passende regel (ingevuld core_product gaat voor
+    sales_unit, dat gaat voor country)."""
     best: dict[str, tuple] = {}
-    values = {'sales_unit': d.sales_unit, 'core_product': d.core_product, 'country': d.country}
+    values = {'sales_unit': sales_unit, 'core_product': core_product, 'country': country}
     for r in rules:
         if any(r[c] and r[c] != values[c] for c in FACTOR_KEYS):
             continue
         rank = (bool(r['core_product']), bool(r['sales_unit']), bool(r['country']))
         if r['detailed_segment'] not in best or rank > best[r['detailed_segment']][0]:
-            best[r['detailed_segment']] = (rank, r['factor'])
-    return {seg: f for seg, (_, f) in best.items()}
+            best[r['detailed_segment']] = (rank, r)
+    return {seg: r for seg, (_, r) in best.items()}
+
+
+def resolve_factors(rules: list[dict], d: TamDefinition) -> dict[str, float]:
+    """detailed_segment -> factor voor een definitie."""
+    return {seg: r['factor'] for seg, r in
+            _resolve(rules, d.sales_unit, d.core_product, d.country).items()}
 
 
 def read_template(path: Path) -> tuple[list[TamDefinition], pd.DataFrame]:

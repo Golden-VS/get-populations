@@ -1,7 +1,7 @@
 # CRM Population Enrichment - Project Checkpoint
 
 > Handoff document for continuing this project in a fresh Claude Code session.
-> Last updated: 2026-11-09
+> Last updated: 2026-11-17
 
 ---
 
@@ -204,11 +204,11 @@ runbook: MANUAL section 7. Board/business explainer (2 pages, generic):
 `doc/TAM_WHITESPACE_OVERVIEW.pdf` (regenerate with
 `tools/make_tam_overview_pdf.py`).
 
-**Workflow (agreed with the user 2026-11-09)**: `doc/TAM_WORKFLOW.md` (who
-does what: business fills the shared template -> user uploads -> dry run ->
-`factors_todo.xlsx` back to the business until no factor is missing -> real
-run -> review -> Power BI). The tool never writes into the shared template;
-layout changes are made by hand in the shared file (see that doc).
+**Workflow (agreed 2026-11-09, simplified 2026-11-17)**: `doc/TAM_WORKFLOW.md`
+(business fills `tam_definitions` and the yellow cells of the `factors` list in
+the shared template -> user uploads -> dry run -> real run -> review -> Power
+BI). The tool never writes into the shared template; layout changes by hand,
+formula changes by a one-time swap (done 2026-11-17).
 
 **Where we are / next step**: the template `tam_template.xlsx` (local,
 gitignored, 224 rows = 28 core products x 8 countries, sorted by company,
@@ -259,12 +259,32 @@ writes overlapping column widths (`9c75b6a`), template rows sorted
   country); rows without factor ignored. TAM sheet gets a `factor` column; a
   missing factor stays EMPTY (= 0 in Power BI), deliberately not 1x (user
   agreed: 1x would double-count provinces/cooperations).
-- `3c5ff7c` `factors_todo.xlsx` from dry run and real run: kinds inside a TAM
-  without a factor, per sales unit / product / country.
+- `3c5ff7c` `factors_todo.xlsx` (REMOVED again 2026-11-17, see below).
 - Shared template status: the user added the `regions` column by hand; still to
   copy in: `factors` tab, `lists` OCMW row, `instructies` rows (texts in
   `tam/template.py` INSTRUCTIONS). Local `tam_template.xlsx` is up to date
   (backup before factors in `backup_2026-06/`).
+
+**Changes 2026-11-10 .. 11-17 (spec section 19)**:
+- `f8b8868` template values case-insensitive; unknown values get "bedoel je".
+- Factors redesigned (user: business won't understand rules + separate file):
+  `factors` tab = fill-in list, one row per product x country x kind (1,708
+  rows), columns explanation / 3 largest examples / count, `nodig?` = COUNTIFS
+  formula on `tam_definitions` (checked equal to tool logic on all rows),
+  yellow = to fill, grey = not needed. Built by `--make-template [--update]`
+  (now builds the master list from cache), existing factors carried over;
+  reader accepts old rule format too. `factors_todo.xlsx` removed.
+- Business template runs: `tam_template_business.xlsx` (uploads 11-10 and
+  11-17, gitignored); typos in rows 70/71 corrected in
+  `tam_template_business_run.xlsx` for the runs; outputs `tam_2026-11-10.xlsx`
+  and `tam_2026-11-17.xlsx` (36 definitions, 2,404 CRM matches).
+- `tam_template_nieuw.xlsx` = rebuilt template from the 11-17 upload, to
+  replace the shared file (one-time swap).
+- Open business points (told to the user): AW/CW/SX get 0 organisations with
+  only Local government (need National government); 2,468 DE Zweckverbaende
+  unknown population for the first sales unit's products (exclude
+  Special-purpose association?); the second sales unit's DE row has min_population = 1; 24 kinds without
+  factor.
 
 **What it is**: `tam_build.py` builds a master list of all governmental bodies
 in NL/BE/DE from official registers, plus hand tables for AW/CW/SX/BQ/SR (spec

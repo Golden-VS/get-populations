@@ -610,8 +610,27 @@ already maintains everything else in the template.
 - An old template without the sheet still reads (no factors); `--update` adds
   the sheet (or fills one with only a heading row) and never touches one with
   rules, so the sheet can be copied by hand into the shared template.
-- `--dry-run` and the real run write `factors_todo.xlsx`: one row per
-  detailed segment inside a TAM without a factor, with counts per sales unit /
-  core product / country, so the business knows which default rows to fill.
-  The tool never writes into the shared template itself.
+- (Superseded by section 19.) `--dry-run` and the real run wrote
+  `factors_todo.xlsx` with the kinds inside a TAM without a factor.
+
+## 19. Revision: factors as a fill-in list (2026-11-17)
+
+The rule format of section 18 (empty = all, most specific wins) and the
+separate `factors_todo.xlsx` proved too hard for the business (one or two
+people per company, mostly one per sales unit). Replaced by:
+
+- Sheet `factors` = one row per core product x country x detailed segment that
+  exists in that country, with explanation, three largest examples and the
+  count from the master list; only column `factor` is filled in.
+- Column `nodig?` is an Excel formula (COUNTIFS on `tam_definitions`: segment
+  chosen and kind not excluded, kind matched as a whole value between
+  semicolons, case-insensitive). Conditional formatting: yellow for empty
+  factor with `nodig? = ja`, grey for `nee`. Data validation: number >= 0.
+- `--make-template` / `--update` build the sheet from the master list (cache)
+  and carry over existing factors through the rule engine, so an old-format
+  sheet converts automatically. The reader accepts both formats.
+- `factors_todo.xlsx` and `--factors-todo` are removed; the dry run prints the
+  gaps and the run log lists them.
+- Because the sheet holds formulas, the shared template was swapped once for
+  the rebuilt one (all business entries kept); see `doc/TAM_WORKFLOW.md`.
 

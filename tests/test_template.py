@@ -438,6 +438,8 @@ def test_factors_grid_one_row_per_product_country_kind(tmp_path):
     assert f.startswith('=IF(AND(COUNTIFS(') and "'tam_definitions'!" in f
     assert '"*Local government*"' in f and '"*; Municipality;*"' in f
     assert len(ws.conditional_formatting) == 2
+    yellow = next(r for cf in ws.conditional_formatting for r in cf.rules if 'AND(' in r.formula[0])
+    assert yellow.dxf.fill.bgColor.rgb.endswith('FFD966')   # Excel toont bgColor bij CF
     assert read_template(path)[0] == []       # niets in tam_definitions: geen definities, geen fout
 
 

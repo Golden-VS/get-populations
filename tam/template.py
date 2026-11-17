@@ -417,8 +417,11 @@ def _factor_grid(wb, entities=None) -> None:
     ws.auto_filter.ref = f'A1:K{last}'
     if last > 1:
         ws.conditional_formatting.add(
+            # voorwaardelijke opmaak: Excel leest de vulkleur uit bgColor (niet fgColor)
             f'J2:J{last}', FormulaRule(formula=['AND($I2="ja",$J2="")'],
-                                       fill=PatternFill('solid', fgColor='FFF2CC')))
+                                       fill=PatternFill(fill_type='solid', start_color='FFD966',
+                                                        end_color='FFD966',
+                                                        bgColor='FFD966')))
         ws.conditional_formatting.add(
             f'A2:K{last}', FormulaRule(formula=['$I2="nee"'], font=Font(color='A6A6A6')))
         dv = DataValidation(type='decimal', operator='greaterThanOrEqual', formula1='0',
